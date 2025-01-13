@@ -1,0 +1,7 @@
+NOAA_AORC_S3_BASE_URL = "s3://noaa-nws-aorc-v1-1-1km"
+
+AORC_PRECIP_VARIABLE = "APCP_surface"
+AORC_X_VAR = "longitude"
+AORC_Y_VAR = "latitude"
+
+MM_TO_INCH_CONVERSION_FACTOR = 0.03937007874015748

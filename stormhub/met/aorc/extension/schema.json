@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/Dewberry/stormhub/main/met/extension/schema.json",
+  "title": "Stormhub AORC Extension",
+  "description": "Extension for STAC Items with AORC data.",
+  "allOf": [
+    {
+      "$ref": "https://schemas.stacspec.org/v1.0.0/item-spec/json-schema/item.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "aorc:statistics": {
+          "$ref": "#/definitions/aorc:statistics"
+        }
+      },
+      "required": ["aorc:statistics"]
+    }
+  ],
+  "definitions": {
+    "stac_extensions": {
+      "type": "object",
+      "required": [
+        "stac_extensions"
+      ],
+      "properties": {
+        "stac_extensions": {
+          "type": "array",
+          "contains": {
+            "const": "https://raw.githubusercontent.com/Dewberry/stormhub/refs/heads/main/met/extension/schema.json#"
+          }
+        }
+      }
+    },
+    "require_any_field": {
+      "$comment": "Please list all fields here so that we can force the existence of one of them in other parts of the schemas.",
+      "anyOf": [
+        {
+          "required": [
+            "aorc:statistics",
+            "aorc:transform"
+          ]
+        }
+      ]
+    },
+    "aorc:statistics": {
+      "title": "Precipitation Accumultation Statistics",
+      "description": "A collection of statistics computed using accumulated AORC precipitation data for a transposed watershed within the transposition domain",
+      "type": "object",
+      "properties": {
+        "min": {
+          "title": "Minimum Precipitation",
+          "description": "Minimum precipitation accumulation value",
+          "units": "inches",
+          "type": "number"
+        },
+        "mean": {
+          "title": "Mean Precipitation",
+          "description": "Mean precipitation accumulation value",
+          "units": "inches",
+          "type": "number"
+        },
+        "max": {
+          "title": "Maximum Precipitation",
+          "description": "Maximum precipitation accumulation value",
+          "units": "inches",
+          "type": "number"
+
+        },
+        "normalized_mean": {
+          "title": "Normalized Mean Precipitation",
+          "description": "Mean of precipitation accumulation values divided by corresponding ATLAS14 data values for normalization",
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "min",
+        "mean",
+        "max"
+      ]
+    },
+    "aorc:transform": {
+      "title":"Transform",
+      "description": "A 3x3 matrix stored as a flat array of 9 elements in row major order. Since the last row is always 0,0,1 it can be omitted, in which case only 6 elements are recorded. Refers to the transform applied to the original watershed geometry to yield the provided watershed geometry",
+      "type":"array",
+      "oneOf": [
+        {
+          "minItems":6,
+          "maxItems":6
+        },
+        {
+          "minItems":9,
+          "maxItems":9
+        }
+      ],
+      "items":{
+        "type":"number"
+      }
+    },
+    "aorc:calendar_year_rank": {
+      "title": "Calendar Year Rank",
+      "description": "Calendar year (January 1- December 31) rank of the storm withing the collection based on mean preciptation summed within the watershed over the storm duration",
+      "type": "integer",
+      "minimum": 1
+    },
+    "aorc:collection_rank": {
+      "title": "Collection Rank",
+      "description": "Absolute rank of the storm withing the collection based on mean preciptation summed within the watershed over the storm duration",
+      "type": "integer",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        }
+      ]
+    },
+    "fields": {
+      "$comment": "Add your new fields here. Don't require them here, do that above in the corresponding schema.",
+      "type": "object",
+      "properties": {
+        "aorc:statistics": {
+          "$ref": "#/definitions/aorc:statistics"
+        },
+        "aorc:transform": {
+          "$ref": "#/definitions/aorc:transform"
+        },
+        "aorc:calendar_year_rank": {
+          "$ref": "#/definitions/aorc:calendar_year_rank"
+        },
+        "aorc:overlapping_year_rank": {
+          "$ref": "#/definitions/collection_rank:collection_rank"
+        },
+        "patternProperties": {
+          "^(?!aorc:)": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
