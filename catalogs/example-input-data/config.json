@@ -1,12 +1,12 @@
 {
     "watershed": {
         "id": "indian-creek",
-        "geometry_file": "https://raw.githubusercontent.com/Dewberry/stormhub/refs/heads/main/stormhub/catalogs/indian-creek/indian-creek.geojson",
+        "geometry_file": "https://raw.githubusercontent.com/Dewberry/stormhub/refs/heads/main/catalogs/example-input-data/indian-creek.geojson",
         "description": "Indian Creek Watershed for use in development of storm catalog"
     },
     "transposition_region": {
         "id": "indian-creek-transpo-area-v01",
-        "geometry_file": "https://raw.githubusercontent.com/Dewberry/stormhub/refs/heads/main/stormhub/catalogs/indian-creek/indian-creek-transpo-area-v01.geojson",
+        "geometry_file": "https://raw.githubusercontent.com/Dewberry/stormhub/refs/heads/main/catalogs/example-input-data/indian-creek-transpo-area-v01.geojson",
         "description": "Original Transposition Domain developed by the hydromet team for use in development of storm catalog"
     }
 }
