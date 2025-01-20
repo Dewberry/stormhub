@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stormhub"
+version = "0.1.0rc1"
+description = "Create catalogs, data, and metadata for hydrologic modeling in the cloud."
+readme = "README.md"
+maintainers = [
+    { name = "Seth Lawler", email = "slawler@dewberry.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "fiona==1.9.6",
+    "geopandas==1.0.1",
+    "matplotlib==3.9.0",
+    "pystac==1.10.0",
+    "rasterio==1.3.10",
+    "requests==2.32.3",
+    "shapely==2.0.5",
+    "xarray==2024.11.0",
+    "rioxarray==0.18.1"
+]
+
+[project.optional-dependencies]
+dev = ["pre-commit", "ruff", "pytest", "pytest-cov", "pytest-json-report"]
+docs = ["sphinx", "numpydoc", "sphinx_rtd_theme", "sphinx_design", "pydata-sphinx-theme", "sphinx-autodoc-typehints", "myst-parser"]
+
+[project.urls]
+repository = "https://github.com/dewberry/stormhub"
+
+[project.scripts]
+stormhub-server = "stormhub.server.serve:main"
+
+[tool.pytest.ini_options]
+pythonpath = "stormhub"
+testpaths = "tests"
+
+[tool.ruff.lint]
+select = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff]
+line-length = 120
+exclude = ["catalogs", "workflows"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"docs/**" = ["D"]
+
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stormhub*"]
+
+
+[tool.sphinx]
+project = "stormhub"
+author = "Seth Lawler"
