@@ -1,0 +1,10 @@
+html[data-theme=light] {
+    --pst-color-borders: rgb(206, 212, 218);
+    --pst-color-primary: rgb(2, 2, 2);
+    --pst-color-secondary: rgb(30, 14, 175);
+    --pst-color-secondary-highlight: rgb(14, 156, 175);
+    --pst-color-link: var(--pst-color-secondary);
+    --pst-color-success: rgb(205, 183, 57);
+    --pst-color-admonition-tip: var(--pst-color-success);
+    --pst-color-inline-code: var(--pst-color-text-base);
+  }
