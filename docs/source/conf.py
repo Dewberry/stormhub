@@ -12,6 +12,7 @@ import sys
 
 import stormhub
 
+sys.path.insert(0, os.path.abspath("../.."))
 sys.path.insert(0, os.path.abspath("../../stromhub"))
 
 
