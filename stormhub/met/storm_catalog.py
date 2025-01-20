@@ -438,6 +438,72 @@ class StormCatalog(pystac.Catalog):
         self.sanitize_catalog_assets()
         return collection
 
+    def sort_collection(self, collection_id, property_name):
+        """
+        Sort and save a STAC collection based on a specific property.
+
+        Args:
+            collection (Collection): The STAC collection to sort and save.
+            property_name (str): The property name to sort by.
+        """
+        collection = self.get_storm_collection(collection_id)
+        sorted_items = sorted(collection.get_all_items(), key=lambda item: item.properties.get(property_name))
+
+        return StormCollection(collection.id, sorted_items)
+
+    def add_rank_to_collection(
+        self,
+        collection_id: str,
+        top_events: pd.DataFrame,
+    ) -> StormCollection:
+        """
+        Create a new collection from a list of items.
+
+        Args:
+            collection_id (str): The ID of the new collection.
+            items (List[Item]): List of items to include in the collection.
+
+        Returns:
+            StormCollection: The new storm collection.
+        """
+
+        collection = self.get_storm_collection(collection_id)
+
+        top_events.loc[:, "storm_id"] = top_events["storm_date"].apply(lambda x: f"{x.strftime('%Y-%m-%dT%H')}")
+        for item in collection.get_all_items():
+            matching_events = top_events[top_events["storm_id"] == item.id]
+            if not matching_events.empty:
+                item.properties["aorc:calendar_year_rank"] = int(matching_events.iloc[0]["annual_rank"])
+                item.properties["aorc:collection_rank"] = int(matching_events.iloc[0]["por_rank"])
+
+        collection = self.sort_collection(collection_id, "aorc:collection_rank")
+        collection.add_asset(
+            "valid-transposition-region",
+            pystac.Asset(
+                href=self.valid_transposition_region.self_href,
+                title="Valid Transposition Region",
+                description=f"Valid transposition region for {self.watershed.id} watershed",
+                media_type=pystac.MediaType.GEOJSON,
+                roles=["valid_transposition_region"],
+            ),
+        )
+
+        collection.add_asset(
+            "watershed",
+            pystac.Asset(
+                href=self.watershed.self_href,
+                title="Watershed",
+                description=f"{self.watershed.id} watershed",
+                media_type=pystac.MediaType.GEOJSON,
+                roles=["watershed"],
+            ),
+        )
+
+        collection.save_object(dest_href=self.spm.collection_file(collection_id), include_self_link=False)
+        self.add_collection_to_catalog(collection, override=True)
+        self.sanitize_catalog_assets()
+        return collection
+
 
 def storm_search(
     catalog: StormCatalog,
@@ -586,15 +652,17 @@ def collect_event_stats(
         collection_id = catalog.spm.storm_collection_id(storm_duration)
 
     collection_dir = catalog.spm.collection_dir(collection_id)
+
     if not os.path.exists(collection_dir):
         os.makedirs(collection_dir)
 
     if not num_workers and not use_threads:
-        num_workers = os.cpu_count()
+        num_workers = os.cpu_count() - 2
     elif not num_workers and use_threads:
         num_workers = 15
 
     output_csv = os.path.join(collection_dir, "storm-stats.csv")
+
     multi_processor(
         func=storm_search,
         catalog=catalog,
@@ -852,13 +920,13 @@ def new_collection(
     catalog: Union[str | StormCatalog],
     start_date: str = "1979-02-01",
     end_date: str = None,
-    storm_duration: int = 24,
+    storm_duration: int = 72,
     min_precip_threshold: int = 1,
     top_n_events: int = 5,
     check_every_n_hours: int = 6,
     specific_dates: list = None,
-    resume: bool = False,
     with_tb: bool = False,
+    create_new_items: bool = True,
 ):
     """
     Create a new storm collection.
@@ -873,6 +941,7 @@ def new_collection(
         check_every_n_hours (int): The interval in hours to check for storms.
         specific_dates (list, optional): Specific dates to include.
         with_tb (bool): Whether to include traceback in error logs.
+        create_new_items (bool): Create items (or skip if items exist)
     """
     initialize_logger()
 
@@ -886,16 +955,18 @@ def new_collection(
     if not end_date:
         end_date = datetime.now().strftime("%Y-%m-%dT%H")
 
-    logging.info(f"specific_dates: {specific_dates}")
-    if len(specific_dates) > 0:
-        logging.info(f"Using specific dates: {specific_dates}")
+    # logging.info(f"specific_dates: {specific_dates}")
+    if not specific_dates:
+        logging.info(f"Generating date range from {start_date} to {end_date}")
+        dates = generate_date_range(start_date, end_date, every_n_hours=check_every_n_hours)
+    elif len(specific_dates) > 0:
+        logging.debug(f"Using specific dates: {specific_dates}")
         dates = specific_dates
     elif len(specific_dates) == 0:
         logging.info("No specific dates provided.")
         dates = None
     else:
-        logging.info(f"Generating date range from {start_date} to {end_date}")
-        dates = generate_date_range(start_date, end_date, every_n_hours=check_every_n_hours)
+        logging.error("Unrecognized specific_dates argument or related  error.}")
 
     collection_id = storm_catalog.spm.storm_collection_id(storm_duration)
     logging.info(f"Creating collection `{collection_id}` for period {start_date} - {end_date}")
@@ -911,14 +982,20 @@ def new_collection(
     except ValueError as e:
         logging.error(f"No events at threshold `min_precip_threshold` {min_precip_threshold}: {e}")
         return
+
     ranked_data = analyzer.rank_and_save(collection_id, storm_catalog.spm)
 
-    top_events = ranked_data[ranked_data["por_rank"] <= top_n_events]
-    event_items = create_items(
-        top_events.to_dict(orient="records"), storm_catalog, storm_duration=storm_duration, with_tb=with_tb
-    )
+    top_events = ranked_data[ranked_data["por_rank"] <= top_n_events].copy()
 
-    collection = storm_catalog.new_collection_from_items(collection_id, event_items)
+    if create_new_items:
+        event_items = create_items(
+            top_events.to_dict(orient="records"), storm_catalog, storm_duration=storm_duration, with_tb=with_tb
+        )
+        collection = storm_catalog.new_collection_from_items(collection_id, event_items)
+
+    else:
+        collection = storm_catalog.add_rank_to_collection(collection_id, top_events)
+
     collection.add_summary_stats(storm_catalog.spm)
     collection.event_feature_collection(storm_catalog.spm, min_precip_threshold)
 
@@ -935,6 +1012,7 @@ def resume_collection(
     top_n_events: int = 5,
     check_every_n_hours: int = 6,
     with_tb: bool = False,
+    create_items: bool = True,
 ):
     """
     Resume a storm collection.
@@ -961,7 +1039,7 @@ def resume_collection(
     dates = find_missing_storm_dates(partial_stats_csv, start_date, end_date, every_n_hours=check_every_n_hours)
     logging.info(f"{len(dates)} dates found missing from {start_date} - {end_date}.")
 
-    storm_collection = new_collection(
+    _ = new_collection(
         catalog=storm_catalog,
         start_date=start_date,
         end_date=end_date,
@@ -970,6 +1048,6 @@ def resume_collection(
         top_n_events=top_n_events,
         check_every_n_hours=check_every_n_hours,
         specific_dates=dates,
-        resume=True,
         with_tb=with_tb,
+        create_new_items=create_items,
     )

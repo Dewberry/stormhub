@@ -102,10 +102,6 @@ class StacPathManager:
     def catalog_file(self):
         return f"{self._catalog_dir}/catalog.json"
 
-    @property
-    def file_server(self):
-        return self._file_server
-
     def storm_collection_id(self, duration: int) -> str:
         return f"{duration}hr-events"
 
