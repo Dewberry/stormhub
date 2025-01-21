@@ -47,9 +47,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install build toml ruff pytest
 
-    - name: Build wheel
-      run: |
-        python -m build_wheel
+    - name: Build wheel and source distribution
+      run: python -m build
 
     - name: Install the built wheel 
       run: | 
