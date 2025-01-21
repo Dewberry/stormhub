@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+    paths:
+      - 'stormhub/**'
+      - 'tests/**'
+  pull_request:
+    branches: [ "main", "dev" ]
+    paths:
+      - 'stormhub/**'
+      - 'tests/**'
+  workflow_dispatch:
+
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+
+    strategy:
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+        os: ["ubuntu-latest"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install build tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install build toml ruff pytest
+
+    - name: Build wheel
+      run: |
+        python -m build_wheel
+
+    - name: Install the built wheel 
+      run: | 
+        python -c "import glob; import subprocess; wheel_files = glob.glob('dist/*.whl'); subprocess.check_call(['pip', 'install', wheel_files[0]])" 
+
+    # - name: Lint (ruff)
+    #   run: |
+    #     ruff check .
+    #     ruff format --check
+
+    # - name: Run tests with coverage
+    #   run: |
+    #     pytest tests/conflation_tests.py
+    #     pytest tests/read_ras_files_tests.py

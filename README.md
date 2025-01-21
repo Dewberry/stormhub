@@ -1,4 +1,9 @@
 # StormHub
+[![CI](https://github.com/dewberry/stormhub/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/dewberry/stormhub/actions/workflows/ci.yaml)
+[![Documentation Status](https://readthedocs.org/projects/stormhub/badge/?version=latest)](https://stormhub.readthedocs.io/en/latest/?badge=latest)
+[![Release](https://github.com/dewberry/stormhub/actions/workflows/release.yaml/badge.svg)](https://github.com/dewberry/stormhub/actions/workflows/release.yaml)
+[![PyPI version](https://badge.fury.io/py/stormhub.svg)](https://badge.fury.io/py/stormhub)
+
 
 **StormHub** is an open-source Python library designed to access and process publicly available hydrometeorological data to create catalogs, metadata, and data products for hydrologic modeling. This project automates the generation of STAC catalogs from storm and stream gage data, enabling improved analysis and simulation for flood studies and stochastic storm transposition (SST). StormHub aims to follow the principles of **[FAIR](https://www.nature.com/articles/sdata201618) (Findable, Accessible, Interoperable, and Reusable)** practices, ensuring that all catalogs can be easily reproduced, shared, published, and integrated into broader workflows.
 
@@ -51,7 +56,7 @@ pip install -e .
 ```
 
 ## Usage
-See the [User Guide](readthedocs).
+See the [User Guide](https://stormhub.readthedocs.io/en/latest/user_guide.html).
 
 ## Sources and References
 - **AORC Dataset** - 1km hourly gridded precipitation data, available through NOAA.
@@ -68,10 +73,3 @@ This project builds on the work of Daniel Wright's [RainyDay2](https://her.cee.w
 
 ## License
 StormHub is licensed under the MIT License. See [LICENSE](LICENSE) for more information.
-
-## Contributing
-Contributions are welcome! Please submit issues and pull requests through the [GitHub repository](https://github.com/slawler/stormhub).
-
----
-For more information, visit the project repository: [https://github.com/dewberry/stormhub](https://github.com/slawler/stormhub).
-
