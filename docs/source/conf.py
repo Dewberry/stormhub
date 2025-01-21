@@ -6,15 +6,14 @@ https://www.sphinx-doc.org/en/master/usage/configuration.html
 """
 
 import os
-import pathlib
-import subprocess
+
+# import pathlib
+# import subprocess
 import sys
 
-import stormhub
-
 sys.path.insert(0, os.path.abspath("../.."))
-sys.path.insert(0, os.path.abspath("../../stromhub"))
 
+import stormhub
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
