@@ -11,6 +11,8 @@ on:
     paths:
       - 'stormhub/**'
       - 'tests/**'
+  workflow_dispatch:
+
 
 permissions:
   contents: read
