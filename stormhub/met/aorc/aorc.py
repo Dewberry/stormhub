@@ -32,6 +32,19 @@ from stormhub.met.consts import (
 
 
 class AORCItem(Item):
+    """Initialize an AORC Item.
+
+    Args:
+        item_id (str): The ID of the item.
+        start_datetime (datetime.datetime): The AORC start datetime.
+        duration_hours (int): Duration of AORC data in hours.
+        watershed (str): Location of watershed geometry geojson.
+        transposition_domain (str): Location of transposition domain geometry geojson.
+        local_directory (str): Local directory path
+        watershed_name (str, optional): Name of watershed.
+        transposition_domain_name (str, optional): Name of transposition name.
+        **kwargs (Any): Additional keyword arguments.
+    """
 
     def __init__(
         self,

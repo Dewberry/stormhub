@@ -15,7 +15,15 @@ PROJ_EPSG = "proj:epsg"
 
 class HydroDomain(Item):
     """
-    Options include watershed, transposition_region, valid_transposition_region
+    Initialize a hydrological domain Item.
+
+    Args:
+        item_id (str): The ID of the Item.
+        geometry (str | Polygon): The Item geometry.
+        hydro_domain_type (str): Hydrological domain type. Options include 'watershed', 'transposition_region', and 'valid_transposition_region'.
+        relevant_datetime (str | datetime, optional): Datetime used for the item. If one is not provided then the item creation time is used.
+        relevant_datetime_description (str): Description of the datetime.
+        **kwargs (Any): Additional keyword arguments.
     """
 
     def __init__(
@@ -83,6 +91,7 @@ class HydroDomain(Item):
 
     @classmethod
     def from_item(cls, item: Item) -> "HydroDomain":
+        """Create a HydroDomain instance from a STAC item."""
         return cls(
             item_id=item.id,
             geometry=shape(item.geometry),
@@ -101,6 +110,7 @@ class HydroDomain(Item):
         return dt or datetime.datetime.now()
 
     def load_geometry(self, geometry_source) -> Polygon:
+        """Load geometry from str or Polygon object."""
         if isinstance(geometry_source, str):
             try:
                 gdf = gpd.read_file(geometry_source)

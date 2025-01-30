@@ -17,6 +17,7 @@ STORMHUB_REF_LINK = Link(
 
 
 def is_port_in_use(port: int = 8080, host: str = "http://localhost"):
+    """Check if a given port is already in use."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
             s.bind((host, port))
@@ -26,11 +27,14 @@ def is_port_in_use(port: int = 8080, host: str = "http://localhost"):
 
 
 def load_config(config_file: str) -> dict:
+    """Load a json config file."""
     with open(config_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def validate_config(config: dict):
+    """Validate a config dictionary against required keys."""
+
     required_keys = {
         "watershed": ["id", "geometry_file", "description"],
         "transposition_region": ["id", "geometry_file", "description"],
@@ -48,6 +52,8 @@ def validate_config(config: dict):
 def generate_date_range(
     start_date: str, end_date: str, every_n_hours: int = 6, date_format: str = "%Y-%m-%d"
 ) -> List[datetime]:
+    """Generates a list of datetime objects at a given interval between start and end dates."""
+
     start = datetime.strptime(start_date, date_format)
     end = datetime.strptime(end_date, date_format)
 
@@ -61,6 +67,7 @@ def generate_date_range(
 
 
 def create_feature_collection_from_items(collection, output_geojson, select_properties: str = "aorc:statistics"):
+    """Generates a geojson feature collection from a collection of STAC items."""
     features = []
     for item in collection.get_all_items():
         geom = shape(item.geometry)
