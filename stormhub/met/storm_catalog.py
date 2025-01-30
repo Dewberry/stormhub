@@ -987,7 +987,7 @@ def new_collection(
     stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     if dates:
         logging.info("Collecting event stats for %d dates", len(dates))
-        _ = collect_event_stats(dates, storm_catalog, collection_id, with_tb=with_tb)
+        collect_event_stats(dates, storm_catalog, collection_id, with_tb=with_tb)
 
     try:
         logging.info("Starting storm analysis for: %s", stats_csv)
@@ -1052,7 +1052,7 @@ def resume_collection(
     dates = find_missing_storm_dates(partial_stats_csv, start_date, end_date, every_n_hours=check_every_n_hours)
     logging.info("%d dates found missing from %s - %s.", len(dates), start_date, end_date)
 
-    _ = new_collection(
+    new_collection(
         catalog=storm_catalog,
         start_date=start_date,
         end_date=end_date,
