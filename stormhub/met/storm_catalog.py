@@ -167,7 +167,7 @@ class StormCollection(pystac.Collection):
         feature_collection = {"type": "FeatureCollection", "features": features}
 
         output_geojson = spm.collection_asset(self.id, "top-storms.geojson")
-        with open(output_geojson, "w") as f:
+        with open(output_geojson, "w", encoding="utf-8") as f:
             json.dump(feature_collection, f, indent=4)
 
         self.add_asset(
@@ -601,12 +601,12 @@ def multi_processor(
 
     if not os.path.exists(output_csv):
         # append_mode=True
-        with open(output_csv, "w") as f:
+        with open(output_csv, "w", encoding="utf-8") as f:
             f.write("storm_date,min,mean,max,x,y\n")
 
     count = len(event_dates)
 
-    with open(output_csv, "a") as f:
+    with open(output_csv, "a", encoding="utf-8") as f:
         with executor(max_workers=num_workers) as executor:
             futures = [executor.submit(func, catalog, date, storm_duration) for date in event_dates]
             for future in as_completed(futures):
@@ -888,7 +888,7 @@ def new_catalog(
     """
 
     # Step 1: Load config
-    with open(config_file, "r") as f:
+    with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
     validate_config(config)
 

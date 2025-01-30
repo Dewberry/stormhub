@@ -26,7 +26,7 @@ def is_port_in_use(port: int = 8080, host: str = "http://localhost"):
 
 
 def load_config(config_file: str) -> dict:
-    with open(config_file, "r") as f:
+    with open(config_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -80,7 +80,7 @@ def create_feature_collection_from_items(collection, output_geojson, select_prop
 
     feature_collection = {"type": "FeatureCollection", "features": features}
 
-    with open(output_geojson, "w") as f:
+    with open(output_geojson, "w", encoding="utf-8") as f:
         json.dump(feature_collection, f, indent=4)
 
     logging.info(f"FeatureCollection saved to {output_geojson}")
