@@ -967,6 +967,7 @@ def new_collection(
         dates = None
     else:
         logging.error("Unrecognized specific_dates argument or related  error.}")
+        dates = None
 
     collection_id = storm_catalog.spm.storm_collection_id(storm_duration)
     logging.info(f"Creating collection `{collection_id}` for period {start_date} - {end_date}")
