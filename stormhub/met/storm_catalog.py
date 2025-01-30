@@ -4,7 +4,7 @@ import os
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, List, Union
 
 import pandas as pd
 import pystac
