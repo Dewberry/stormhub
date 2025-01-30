@@ -104,7 +104,7 @@ class HydroDomain(Item):
         ProjectionExtension.add_to(self)
         # StorageExtension.add_to(self)
 
-    def _ensure_datetime(self, dt: str) -> datetime.datetime:
+    def _ensure_datetime(self, dt: str) -> datetime:
         if isinstance(dt, str):
             return datetime.datetime.fromisoformat(dt)
         return dt or datetime.datetime.now()
