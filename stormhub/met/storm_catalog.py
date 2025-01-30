@@ -669,7 +669,10 @@ def collect_event_stats(
         os.makedirs(collection_dir)
 
     if not num_workers and not use_threads:
-        num_workers = os.cpu_count() - 2
+        if os.cpu_count() > 2:
+            num_workers = os.cpu_count() - 2
+        else:
+            num_workers = 1
     elif not num_workers and use_threads:
         num_workers = 15
 
@@ -937,6 +940,7 @@ def new_collection(
     top_n_events: int = 5,
     check_every_n_hours: int = 6,
     specific_dates: list = None,
+    num_workers: int = None,
     with_tb: bool = False,
     create_new_items: bool = True,
 ):
@@ -952,6 +956,7 @@ def new_collection(
         top_n_events (int): The number of top events to include.
         check_every_n_hours (int): The interval in hours to check for storms.
         specific_dates (list, optional): Specific dates to include.
+        num_workers (int, optional): Number of cpu's to use during processing.
         with_tb (bool): Whether to include traceback in error logs.
         create_new_items (bool): Create items (or skip if items exist)
     """
@@ -987,7 +992,7 @@ def new_collection(
     stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     if dates:
         logging.info("Collecting event stats for %d dates", len(dates))
-        collect_event_stats(dates, storm_catalog, collection_id, with_tb=with_tb)
+        collect_event_stats(dates, storm_catalog, collection_id, num_workers=num_workers, with_tb=with_tb)
 
     try:
         logging.info("Starting storm analysis for: %s", stats_csv)
@@ -1024,6 +1029,7 @@ def resume_collection(
     min_precip_threshold: int = 1,
     top_n_events: int = 5,
     check_every_n_hours: int = 6,
+    num_workers: int = None,
     with_tb: bool = False,
     create_items: bool = True,
 ):
@@ -1038,6 +1044,7 @@ def resume_collection(
         min_precip_threshold (int): The minimum precipitation threshold.
         top_n_events (int): The number of top events to include.
         check_every_n_hours (int): The interval in hours to check for storms.
+        num_workers (int, optional): Number of cpu's to use during processing.
         with_tb (bool): Whether to include traceback in error logs.
     """
     initialize_logger()
@@ -1061,6 +1068,7 @@ def resume_collection(
         top_n_events=top_n_events,
         check_every_n_hours=check_every_n_hours,
         specific_dates=dates,
+        num_workers=num_workers,
         with_tb=with_tb,
         create_new_items=create_items,
     )
