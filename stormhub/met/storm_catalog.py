@@ -555,7 +555,7 @@ def storm_search(
     logging.debug(f"Centroid: {centroid}")
     logging.debug(f"Statistics: {event_stats}")
     logging.debug(f"Storm Date: {storm_start_date.strftime('%Y-%m-%dT%H')}")
-    logging.debug("dest_href:", catalog.spm.collection_item(collection_id, event_item.id))
+    logging.debug(f"Destination href: {catalog.spm.collection_item(collection_id, event_item.id)}")
     if return_item:
         if not os.path.exists(item_dir):
             os.makedirs(item_dir)
@@ -966,7 +966,7 @@ def new_collection(
         logging.info("No specific dates provided.")
         dates = None
     else:
-        logging.error("Unrecognized specific_dates argument or related  error.}")
+        logging.error("Unrecognized specific_dates argument or related  error.")
         dates = None
 
     collection_id = storm_catalog.spm.storm_collection_id(storm_duration)
