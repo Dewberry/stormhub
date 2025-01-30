@@ -145,7 +145,6 @@ class AORCItem(Item):
             s3_out = s3fs.S3FileSystem(anon=True)
             fileset = [s3fs.S3Map(root=aorc_path, s3=s3_out, check=False) for aorc_path in self.aorc_paths]
             ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
-            pyproj_crs = CRS.from_user_input(ds.rio.crs)
 
             transposition_geom_for_clip = self.transposition_domain_geometry
             bounds = transposition_geom_for_clip.bounds
