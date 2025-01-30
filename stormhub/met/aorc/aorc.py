@@ -35,7 +35,7 @@ class AORCItem(Item):
 
     def __init__(
         self,
-        id: str,
+        item_id: str,
         start_datetime: datetime.datetime,
         duration_hours: int,
         watershed: str,
@@ -46,7 +46,7 @@ class AORCItem(Item):
         **kwargs: Any,
     ):
 
-        self.id = id
+        self.item_id = item_id
         self.duration_hours = f"{duration_hours}hrs"
         self.duration = duration_hours
         if not watershed_name:
@@ -78,7 +78,7 @@ class AORCItem(Item):
         self.start_datetime = start_datetime
         self.end_datetime = start_datetime + self.duration
         super().__init__(
-            self.id,
+            self.item_id,
             NULL_POLYGON,
             self.transposition_domain_geometry.bounds,
             self.start_datetime,
@@ -268,7 +268,7 @@ class AORCItem(Item):
             if not os.path.isdir(self.local_directory):
                 os.makedirs(self.local_directory)
 
-            filename = f"{self.id}.thumbnail.png"
+            filename = f"{self.item_id}.thumbnail.png"
             fn = os.path.join(self.local_directory, filename)
             fig.savefig(fn, bbox_inches="tight")
             asset = Asset(fn, media_type=MediaType.PNG, roles=["thumbnail"])

@@ -20,7 +20,7 @@ class HydroDomain(Item):
 
     def __init__(
         self,
-        id: str,
+        item_id: str,
         geometry: str | Polygon,
         hydro_domain_type: str,
         relevant_datetime: str | datetime = None,
@@ -28,7 +28,7 @@ class HydroDomain(Item):
         **kwargs: Any,
     ):
 
-        self.id = id
+        self.item_id = item_id
         self.geometry = self.load_geometry(geometry)
         if hydro_domain_type not in ["watershed", "transposition_region", "valid_transposition_region"]:
             raise ValueError(
@@ -64,7 +64,7 @@ class HydroDomain(Item):
             self.properties["description"] = self.description
 
         super().__init__(
-            id=self.id,
+            id=self.item_id,
             geometry=mapping(self.geometry),
             bbox=self.geometry.bounds,
             datetime=self.relevant_datetime,
@@ -84,7 +84,7 @@ class HydroDomain(Item):
     @classmethod
     def from_item(cls, item: Item) -> "HydroDomain":
         return cls(
-            id=item.id,
+            item_id=item.id,
             geometry=shape(item.geometry),
             hydro_domain_type=item.properties.get(HYDRO_DOMAIN_TYPE),
             relevant_datetime=item.properties.get("datetime"),

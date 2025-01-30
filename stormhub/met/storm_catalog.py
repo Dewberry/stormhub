@@ -201,7 +201,7 @@ class StormCatalog(pystac.Catalog):
 
     def __init__(
         self,
-        id: str,
+        catalog_id: str,
         watershed: HydroDomain,
         transposition_region: HydroDomain,
         description: str,
@@ -209,7 +209,7 @@ class StormCatalog(pystac.Catalog):
         valid_transposition_region: HydroDomain = None,
         **kwargs: Any,
     ):
-        super().__init__(id=id, description=description)
+        super().__init__(id=catalog_id, description=description)
         self.catalog_type = pystac.CatalogType.SELF_CONTAINED
         self.local_dir = local_dir
         self.spm = StacPathManager(local_dir)
@@ -246,7 +246,7 @@ class StormCatalog(pystac.Catalog):
             raise ValueError("Both watershed and transposition region must be defined in the catalog.")
 
         return cls(
-            id=catalog.id,
+            catalog_id=catalog.id,
             watershed=watershed,
             transposition_region=transposition_region,
             description=catalog.description,
@@ -335,21 +335,21 @@ class StormCatalog(pystac.Catalog):
         try:
             title = hydro_domain.title
         except AttributeError:
-            title = hydro_domain.id
+            title = hydro_domain.item_id
 
         self.add_link(
             Link(
                 rel="Hydro_Domains",
-                target=self.spm.catalog_asset(hydro_domain.id).replace(self.spm.catalog_dir, "."),
+                target=self.spm.catalog_asset(hydro_domain.item_id).replace(self.spm.catalog_dir, "."),
                 title=title,
                 media_type=pystac.MediaType.GEOJSON,
                 extra_fields={
-                    "Name": hydro_domain.id,
-                    "Description": f"Input {hydro_domain.id} used to generate this catalog",
+                    "Name": hydro_domain.item_id,
+                    "Description": f"Input {hydro_domain.item_id} used to generate this catalog",
                 },
             )
         )
-        return hydro_domain.id
+        return hydro_domain.item_id
 
     def get_storm_collection(self, collection_id: str) -> StormCollection:
         """
@@ -762,7 +762,7 @@ def init_storm_catalog(
 
     logging.info(f"Creating `transposition_region` item for catalog: {catalog_id}")
     transposition_region = HydroDomain(
-        id=tr_config.get("id"),
+        item_id=tr_config.get("id"),
         geometry=tr_config.get("geometry_file"),
         hydro_domain_type="transposition_region",
         description=tr_config.get("description"),
@@ -772,7 +772,7 @@ def init_storm_catalog(
 
     logging.info(f"Creating `watershed` item for catalog: {catalog_id}")
     watershed = HydroDomain(
-        id=watershed_config.get("id"),
+        item_id=watershed_config.get("id"),
         geometry=watershed_config.get("geometry_file"),
         hydro_domain_type="watershed",
         description=watershed_config.get("description"),
@@ -785,7 +785,7 @@ def init_storm_catalog(
         vtr_polygon = valid_spaces_item(watershed, transposition_region)
         vtr_id = f"{tr_config.get('id')}_valid"
         vtr = HydroDomain(
-            id=vtr_id,
+            item_id=vtr_id,
             geometry=vtr_polygon,
             hydro_domain_type="valid_transposition_region",
             description=f"Valid transposition region for {watershed.id} watershed",

@@ -235,7 +235,7 @@ class Transpose:
             self._valid_spaces_polygon = self._array_to_polygon(self.valid_spaces)
         return self._valid_spaces_polygon
 
-    def max_transpose(self, callable: Callable[[np.ndarray], Any] | None = None) -> tuple[Polygon, Affine, Any | None]:
+    def max_transpose(self, func: Callable[[np.ndarray], Any] | None = None) -> tuple[Polygon, Affine, Any | None]:
         """
         Calculate the maximum transpose of the watershed mask over the data array.
 
@@ -245,7 +245,7 @@ class Transpose:
         it overwrites the max stats, max shift, and max transpose array.
 
         Args:
-            callable (Callable[[np.ndarray], Any] | None): A callable to apply to the data array.
+            func (Callable[[np.ndarray], Any] | None): A callable to apply to the data array.
 
         Returns:
             tuple[Polygon, Affine, Any | None]: The resulting polygon, affine transformation, and results.
@@ -266,8 +266,8 @@ class Transpose:
             if max_mean is None or mean > max_mean:
                 max_mean = mean
                 max_shift = (float(x_delta * self.x_cellsize), float(y_delta * self.y_cellsize))
-                if callable:
-                    results = callable(data_clipped)
+                if func:
+                    results = func(data_clipped)
         poly = self._array_to_polygon(self.watershed_mask)
         poly = translate(poly, *max_shift)
         aff = Affine.translation(*max_shift)
