@@ -88,14 +88,16 @@ class StormCollection(pystac.Collection):
             if override:
                 self.remove_item(item.id)
                 self.add_item(item)
-                logging.info(f"Overwriting (existing) item with ID '{item.id}'.")
+                logging.info("Overwriting (existing) item with ID '%s'.", item.id)
             else:
                 logging.error(
-                    f"Item with ID '{item.id}' already exists in the collection. Use `override=True` to overwrite."
+                    "Item with ID '%s' already exists in the collection. Use `override=True` to overwrite.",
+                    item.id,
                 )
+
         else:
             self.add_item(item)
-            logging.info(f"Added item with ID '{item.id}' to the collection.")
+            logging.info("Added item with ID '%s' to the collection.", item.id)
 
     def add_summary_stats(self, spm: StacPathManager, property_name: str = "aorc:statistics", statistic: str = "mean"):
         """
@@ -127,15 +129,20 @@ class StormCollection(pystac.Collection):
                 "maximum": max_value,
             }
         else:
-            logging.warning(f"No values found for {property_name} in collection: {self.id}")
+            logging.warning("No values found for %s in collection: %s", property_name, self.id)
             self.extra_fields["summaries"][f"{property_name} precip (inches)"] = {
                 "minimum": 0,
                 "maximum": 0,
             }
 
         logging.info(
-            f"Summary statistics for {property_name}: {min_value} - {max_value} saved at {spm.collection_file(self.id)}"
+            "Summary statistics for %s: %s - %s saved at %s",
+            property_name,
+            min_value,
+            max_value,
+            spm.collection_file(self.id),
         )
+
         self.save_object(dest_href=spm.collection_file(self.id), include_self_link=False)
 
     def event_feature_collection(self, spm: StacPathManager, threshold: float):
@@ -181,7 +188,7 @@ class StormCollection(pystac.Collection):
             ),
         )
 
-        logging.info(f"FeatureCollection saved to {output_geojson}")
+        logging.info("FeatureCollection saved to %s", output_geojson)
         self.save_object(dest_href=spm.collection_file(self.id), include_self_link=False)
 
 
@@ -390,14 +397,16 @@ class StormCatalog(pystac.Catalog):
             if override:
                 self.remove_child(collection.id)
                 self.add_child(collection, title=collection.id)
-                logging.info(f"Overwriting (existing) collection with ID '{collection.id}'.")
+                logging.info("Overwriting (existing) collection with ID '%s'.", collection.id)
             else:
                 logging.error(
-                    f"Collection with ID '{collection.id}' already exists in the collection. Use `override=True` to overwrite."
+                    "Collection with ID '%s' already exists in the collection. Use `override=True` to overwrite.",
+                    collection.id,
                 )
+
         else:
             self.add_child(collection, title=collection.id)
-            logging.info(f"Added collection with ID '{collection.id}' to the catalog.")
+            logging.info("Added collection with ID '%s' to the catalog.", collection.id)
 
     def new_collection_from_items(self, collection_id: str, items: List[Item]) -> StormCollection:
         """
@@ -533,7 +542,10 @@ def storm_search(
     valid_transposition_domain = catalog.valid_transposition_region
 
     logging.debug(
-        f"{storm_start_date.strftime('%Y-%m-%dT%H')}: searching {watershed.id} - for max {storm_duration_hours} hr event."
+        "%s: searching %s - for max %d hr event.",
+        storm_start_date.strftime("%Y-%m-%dT%H"),
+        watershed.id,
+        storm_duration_hours,
     )
 
     item_id = f"{storm_start_date.strftime('%Y-%m-%dT%H')}"
@@ -552,10 +564,10 @@ def storm_search(
     )
 
     _, _, event_stats, centroid = event_item.max_transpose()
-    logging.debug(f"Centroid: {centroid}")
-    logging.debug(f"Statistics: {event_stats}")
-    logging.debug(f"Storm Date: {storm_start_date.strftime('%Y-%m-%dT%H')}")
-    logging.debug(f"Destination href: {catalog.spm.collection_item(collection_id, event_item.id)}")
+    logging.debug("Centroid: %s", centroid)
+    logging.debug("Statistics: %s", event_stats)
+    logging.debug("Storm Date: %s", storm_start_date.strftime("%Y-%m-%dT%H"))
+    logging.debug("Destination href: %s", catalog.spm.collection_item(collection_id, event_item.id))
     if return_item:
         if not os.path.exists(item_dir):
             os.makedirs(item_dir)
@@ -614,12 +626,12 @@ def multi_processor(
                 try:
                     r = future.result()
                     f.write(storm_search_results_to_csv_line(r))
-                    logging.info(f"{r['storm_date']} processed ({count} remaining)")
+                    logging.info("%s processed (%d remaining)", r["storm_date"], count)
 
                 except Exception as e:
                     if with_tb:
                         tb = traceback.format_exc()
-                        logging.error(f"Error processing: {e}\n{tb}")
+                        logging.error("Error processing: %s\n%s", e, tb)
                         continue
                     else:
                         logging.error(f"Error processing: {e}")
@@ -760,7 +772,7 @@ def init_storm_catalog(
     if not os.path.exists(spm.catalog_dir):
         os.makedirs(spm.catalog_dir, exist_ok=True)
 
-    logging.info(f"Creating `transposition_region` item for catalog: {catalog_id}")
+    logging.info("Creating `transposition_region` item for catalog: %s", catalog_id)
     transposition_region = HydroDomain(
         item_id=tr_config.get("id"),
         geometry=tr_config.get("geometry_file"),
@@ -770,7 +782,7 @@ def init_storm_catalog(
     )
     transposition_region.save_object(dest_href=spm.catalog_asset(tr_config.get("id")), include_self_link=False)
 
-    logging.info(f"Creating `watershed` item for catalog: {catalog_id}")
+    logging.info("Creating `watershed` item for catalog: %s", catalog_id)
     watershed = HydroDomain(
         item_id=watershed_config.get("id"),
         geometry=watershed_config.get("geometry_file"),
@@ -781,7 +793,7 @@ def init_storm_catalog(
     watershed.save_object(dest_href=spm.catalog_asset(watershed_config.get("id")), include_self_link=False)
 
     if create_valid_transposition_region:
-        logging.info(f"Creating `valid_transposition_region` item for catalog: {catalog_id}")
+        logging.info("Creating `valid_transposition_region` item for catalog: %s", catalog_id)
         vtr_polygon = valid_spaces_item(watershed, transposition_region)
         vtr_id = f"{tr_config.get('id')}_valid"
         vtr = HydroDomain(
@@ -853,14 +865,14 @@ def find_missing_storm_dates(file_path: str, start_date: str, stop_date: str, ev
     """
     df = pd.read_csv(file_path)
     df["storm_date"] = pd.to_datetime(df["storm_date"], format="%Y-%m-%dT%H")
-    logging.info(f"Loaded {len(df)} storm events from {file_path}")
+    logging.info("Loaded %d storm events from %s", len(df), file_path)
 
     start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
     stop_datetime = datetime.strptime(stop_date, "%Y-%m-%d")
     duration = timedelta(hours=every_n_hours)
 
     complete_range = pd.date_range(start=start_datetime, end=stop_datetime, freq=duration)
-    logging.info(f"Expecting {len(complete_range)} storm events for {start_date} - {stop_date}")
+    logging.info("Expecting %d storm events for %s - %s", len(complete_range), start_date, stop_date)
 
     existing_datetimes = set(df["storm_date"])
     missing_datetimes = [dt for dt in complete_range if dt not in existing_datetimes]
@@ -957,10 +969,10 @@ def new_collection(
 
     # logging.info(f"specific_dates: {specific_dates}")
     if not specific_dates:
-        logging.info(f"Generating date range from {start_date} to {end_date}")
+        logging.info("Generating date range from %s to %s", start_date, end_date)
         dates = generate_date_range(start_date, end_date, every_n_hours=check_every_n_hours)
     elif len(specific_dates) > 0:
-        logging.debug(f"Using specific dates: {specific_dates}")
+        logging.debug("Using specific dates: %s", specific_dates)
         dates = specific_dates
     elif len(specific_dates) == 0:
         logging.info("No specific dates provided.")
@@ -970,18 +982,18 @@ def new_collection(
         dates = None
 
     collection_id = storm_catalog.spm.storm_collection_id(storm_duration)
-    logging.info(f"Creating collection `{collection_id}` for period {start_date} - {end_date}")
+    logging.info("Creating collection `%s` for period %s - %s", collection_id, start_date, end_date)
 
     stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     if dates:
-        logging.info(f"Collecting event stats for {len(dates)} dates")
+        logging.info("Collecting event stats for %d dates", len(dates))
         _ = collect_event_stats(dates, storm_catalog, collection_id, with_tb=with_tb)
 
     try:
-        logging.info(f"Starting storm analysis for: {stats_csv}")
+        logging.info("Starting storm analysis for: %s", stats_csv)
         analyzer = StormAnalyzer(stats_csv, min_precip_threshold, storm_duration)
     except ValueError as e:
-        logging.error(f"No events at threshold `min_precip_threshold` {min_precip_threshold}: {e}")
+        logging.error("No events at threshold `min_precip_threshold` %d: %s", min_precip_threshold, e)
         return
 
     ranked_data = analyzer.rank_and_save(collection_id, storm_catalog.spm)
@@ -1036,9 +1048,9 @@ def resume_collection(
 
     collection_id = storm_catalog.spm.storm_collection_id(storm_duration)
     partial_stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
-    logging.info(f"Searching for missing storm dates in {partial_stats_csv}")
+    logging.info("Searching for missing storm dates in %s", partial_stats_csv)
     dates = find_missing_storm_dates(partial_stats_csv, start_date, end_date, every_n_hours=check_every_n_hours)
-    logging.info(f"{len(dates)} dates found missing from {start_date} - {end_date}.")
+    logging.info("%d dates found missing from %s - %s.", len(dates), start_date, end_date)
 
     _ = new_collection(
         catalog=storm_catalog,
