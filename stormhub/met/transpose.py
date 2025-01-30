@@ -114,7 +114,7 @@ class Transpose:
         Returns:
             Window: The window of the watershed in the data array.
         """
-        if self._watershed_window == None:
+        if self._watershed_window is None:
             self._calculate_watershed_mask_and_window()
         return self._watershed_window
 
@@ -154,7 +154,7 @@ class Transpose:
         Returns:
             list[tuple[int, int]]: A list of tuples representing the valid (x, y) shifts.
         """
-        if self._valid_shifts == None:
+        if self._valid_shifts is None:
             original_window_row_slice, original_window_col_slice = self.watershed_window.toslices()
             shifts: list[tuple[int, int]] = []
             min_x_delta = 0 - self.watershed_window.col_off
@@ -231,7 +231,7 @@ class Transpose:
         Returns:
             Polygon: The valid spaces polygon.
         """
-        if self._valid_spaces_polygon == None:
+        if self._valid_spaces_polygon is None:
             self._valid_spaces_polygon = self._array_to_polygon(self.valid_spaces)
         return self._valid_spaces_polygon
 
@@ -263,7 +263,7 @@ class Transpose:
                 adjusted_row_start:adjusted_row_stop, adjusted_col_start:adjusted_col_stop
             ]
             mean = np.nanmean(data_clipped)
-            if max_mean == None or mean > max_mean:
+            if max_mean is None or mean > max_mean:
                 max_mean = mean
                 max_shift = (float(x_delta * self.x_cellsize), float(y_delta * self.y_cellsize))
                 if callable:
