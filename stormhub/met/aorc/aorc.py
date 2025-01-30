@@ -291,7 +291,7 @@ class AORCItem(Item):
             plt.close()
 
 
-def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duration: int = 72):
+def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duration: int = 72) -> Polygon:
     """
     Search a sample zarr dataset to identify valid spaces for transposition.
      datetime.datetime(1980, 5, 1) is used as a start time for the search.

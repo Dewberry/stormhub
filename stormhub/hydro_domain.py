@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Union
 
 import fiona.errors
 import geopandas as gpd
@@ -104,12 +104,12 @@ class HydroDomain(Item):
         ProjectionExtension.add_to(self)
         # StorageExtension.add_to(self)
 
-    def _ensure_datetime(self, dt):
+    def _ensure_datetime(self, dt: str) -> datetime.datetime:
         if isinstance(dt, str):
             return datetime.datetime.fromisoformat(dt)
         return dt or datetime.datetime.now()
 
-    def load_geometry(self, geometry_source) -> Polygon:
+    def load_geometry(self, geometry_source: Union[str, Polygon]) -> Polygon:
         """Load geometry from str or Polygon object."""
         if isinstance(geometry_source, str):
             try:

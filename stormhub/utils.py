@@ -4,7 +4,7 @@ import socket
 from datetime import datetime, timedelta
 from typing import List
 
-from pystac import Link
+from pystac import Link, Collection
 from shapely.geometry import mapping, shape
 
 STORMHUB_REF_LINK = Link(
@@ -16,7 +16,7 @@ STORMHUB_REF_LINK = Link(
 )
 
 
-def is_port_in_use(port: int = 8080, host: str = "http://localhost"):
+def is_port_in_use(port: int = 8080, host: str = "http://localhost") -> bool:
     """Check if a given port is already in use."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
@@ -32,7 +32,7 @@ def load_config(config_file: str) -> dict:
         return json.load(f)
 
 
-def validate_config(config: dict):
+def validate_config(config: dict) -> dict:
     """Validate a config dictionary against required keys."""
 
     required_keys = {
@@ -66,7 +66,9 @@ def generate_date_range(
     return date_range
 
 
-def create_feature_collection_from_items(collection, output_geojson, select_properties: str = "aorc:statistics"):
+def create_feature_collection_from_items(
+    collection: Collection, output_geojson: str, select_properties: str = "aorc:statistics"
+):
     """Generates a geojson feature collection from a collection of STAC items."""
     features = []
     for item in collection.get_all_items():

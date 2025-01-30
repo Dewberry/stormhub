@@ -256,7 +256,7 @@ class StormCatalog(pystac.Catalog):
         )
 
     @property
-    def valid_transposition_region(self):
+    def valid_transposition_region(self) -> Item:
         """
         Get the valid transposition region from the catalog links.
 
@@ -438,7 +438,7 @@ class StormCatalog(pystac.Catalog):
         self.sanitize_catalog_assets()
         return collection
 
-    def sort_collection(self, collection_id, property_name):
+    def sort_collection(self, collection_id: Collection, property_name: str):
         """
         Sort and save a STAC collection based on a specific property.
 
@@ -512,7 +512,7 @@ def storm_search(
     return_item: bool = False,
     scale_max: float = 12.0,
     collection_id: str = None,
-):
+) -> Union[dict, AORCItem]:
     """
     Search for a storm event.
 
@@ -682,7 +682,7 @@ def create_items(
     storm_duration: int = 72,
     num_workers: int = None,
     with_tb: bool = False,
-):
+) -> List:
     """
     Create items for storm events.
 
@@ -838,7 +838,7 @@ def storm_search_results_to_csv_line(storm_search_results: dict) -> str:
     return f"{storm_date},{stats},{centroid.x},{centroid.y}\n"
 
 
-def find_missing_storm_dates(file_path, start_date, stop_date, every_n_hours):
+def find_missing_storm_dates(file_path: str, start_date: str, stop_date: str, every_n_hours: int) -> List:
     """
     Find missing storm dates in a CSV file.
 
@@ -870,7 +870,7 @@ def find_missing_storm_dates(file_path, start_date, stop_date, every_n_hours):
 
 def new_catalog(
     catalog_id: str,
-    config_file,
+    config_file: str,
     local_directory: str = None,
     catalog_description: str = "",
 ) -> StormCatalog:
@@ -879,7 +879,7 @@ def new_catalog(
 
     Args:
         catalog_id (str): The ID of the catalog.
-        config_file: Path to the configuration file.
+        config_file (str): Path to the configuration file.
         local_directory (str, optional): Local directory for the catalog.
         catalog_description (str): Description of the catalog.
 
