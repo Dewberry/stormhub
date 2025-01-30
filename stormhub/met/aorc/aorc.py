@@ -293,7 +293,7 @@ class AORCItem(Item):
 
 def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duration: int = 72):
     """
-    Search a sample zarr dataset to identify valid spaces for transposition.'
+    Search a sample zarr dataset to identify valid spaces for transposition.
      datetime.datetime(1980, 5, 1) is used as a start time for the search.
     """
     s3 = s3fs.S3FileSystem(anon=True)
@@ -309,11 +309,10 @@ def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duratio
     )
 
     clipped_data = subset.rio.clip([shape(transposition_region.geometry)], drop=True, all_touched=True)
-    # size_gb = clipped_data[AORC_PRECIP_VARIABLE].nbytes / 1e9
     transpose = Transpose(
         clipped_data[AORC_PRECIP_VARIABLE].sum(dim="time", skipna=True, min_count=1),
         shape(watershed.geometry),
         AORC_X_VAR,
         AORC_Y_VAR,
     )
-    return transpose.valid_spaces_polygon  # , size_gb
+    return transpose.valid_spaces_polygon
