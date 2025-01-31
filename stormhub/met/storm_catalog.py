@@ -634,7 +634,7 @@ def multi_processor(
                         logging.error("Error processing: %s\n%s", e, tb)
                         continue
                     else:
-                        logging.error(f"Error processing: {e}")
+                        logging.error("Error processing: %s", e)
                         continue
 
 
@@ -738,16 +738,16 @@ def create_items(
             count -= 1
             try:
                 r = future.result()
-                logging.info(f"{r.datetime} processed ({count} remaining)")
+                logging.info("%s processed (%d remaining)", r.datetime, count)
                 event_items.append(r)
 
             except Exception as e:
                 if with_tb:
                     tb = traceback.format_exc()
-                    logging.error(f"Error processing: {e}\n{tb}")
+                    logging.error("Error processing: %s\n%s", e, tb)
                     continue
                 else:
-                    logging.error(f"Error processing: {e}")
+                    logging.error("Error processing: %s", e)
                     continue
     return event_items
 

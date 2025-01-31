@@ -131,7 +131,7 @@ class AORCItem(Item):
                     year_list.append(current_year)
                     current_year += 1
                 self._aorc_paths = [f"{NOAA_AORC_S3_BASE_URL}/{year}.zarr" for year in year_list]
-            logging.debug(f"year_list for {self.start_datetime}: {self._aorc_paths }")
+            logging.debug("year_list for %s: %s", self.start_datetime, self._aorc_paths)
         return self._aorc_paths
 
     @property

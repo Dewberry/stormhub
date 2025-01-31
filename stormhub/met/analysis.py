@@ -102,7 +102,7 @@ class StormAnalyzer:
         ranked_df = self.rank_and_filter_storms()
         ranked_df.to_csv(output_file, index=False)
         ranked_df["storm_date"] = pd.to_datetime(ranked_df["storm_date"])
-        logging.info(f"Saved ranked storm data to {output_file}")
+        logging.info("Saved ranked storm data to %s", output_file)
         return ranked_df
 
 

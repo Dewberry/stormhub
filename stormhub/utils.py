@@ -92,7 +92,7 @@ def create_feature_collection_from_items(
     with open(output_geojson, "w", encoding="utf-8") as f:
         json.dump(feature_collection, f, indent=4)
 
-    logging.info(f"FeatureCollection saved to {output_geojson}")
+    logging.info("FeatureCollection saved to %s", output_geojson)
 
 
 class StacPathManager:
