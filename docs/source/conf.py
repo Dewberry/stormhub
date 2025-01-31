@@ -6,9 +6,8 @@ https://www.sphinx-doc.org/en/master/usage/configuration.html
 """
 
 import os
-
-# import pathlib
-# import subprocess
+import pathlib
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.abspath("../.."))
@@ -72,11 +71,11 @@ release = str(stormhub.__version__)
 version = release
 
 
-# def fetch_github_releases():
-#     subprocess.run(
-#         [sys.executable, str(pathlib.Path(__file__).parent.parent.resolve() / "build_release_changelog.py")], check=True
-#     )
+def fetch_github_releases():
+    subprocess.run(
+        [sys.executable, str(pathlib.Path(__file__).parent.parent.resolve() / "build_release_changelog.py")], check=True
+    )
 
 
-# def setup(app):
-#     fetch_github_releases()
+def setup(app):
+    fetch_github_releases()

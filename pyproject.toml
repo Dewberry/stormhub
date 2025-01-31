@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stormhub"
-version = "0.1.0rc1"
+dynamic = ["version"]
 description = "Create catalogs, data, and metadata for hydrologic modeling in the cloud."
 readme = "README.md"
 maintainers = [
@@ -68,6 +68,8 @@ exclude = ["catalogs", "workflows"]
 where = ["."]
 include = ["stormhub*"]
 
+[tool.setuptools.dynamic]
+version = {attr = "stormhub.__version__"}
 
 [tool.sphinx]
 project = "stormhub"
