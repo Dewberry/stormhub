@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stormhub"
-version = "0.1.0rc1"
+dynamic = ["version"]
 description = "Create catalogs, data, and metadata for hydrologic modeling in the cloud."
 readme = "README.md"
 maintainers = [
@@ -29,7 +29,10 @@ dependencies = [
     "requests==2.32.3",
     "shapely==2.0.5",
     "xarray==2024.11.0",
-    "rioxarray==0.18.1"
+    "rioxarray==0.18.1",
+    "s3fs==2024.12.0",
+    "zarr==2.18.3",
+    "dask==2025.1.0"
 ]
 
 [project.optional-dependencies]
@@ -65,6 +68,8 @@ exclude = ["catalogs", "workflows"]
 where = ["."]
 include = ["stormhub*"]
 
+[tool.setuptools.dynamic]
+version = {attr = "stormhub.__version__"}
 
 [tool.sphinx]
 project = "stormhub"

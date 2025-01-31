@@ -6,6 +6,8 @@ from socketserver import ThreadingMixIn
 
 
 class CORSRequestHandler(SimpleHTTPRequestHandler):
+    """Handles CORS requests"""
+
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")

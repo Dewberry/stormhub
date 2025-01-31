@@ -114,7 +114,7 @@ class Transpose:
         Returns:
             Window: The window of the watershed in the data array.
         """
-        if self._watershed_window == None:
+        if self._watershed_window is None:
             self._calculate_watershed_mask_and_window()
         return self._watershed_window
 
@@ -154,7 +154,7 @@ class Transpose:
         Returns:
             list[tuple[int, int]]: A list of tuples representing the valid (x, y) shifts.
         """
-        if self._valid_shifts == None:
+        if self._valid_shifts is None:
             original_window_row_slice, original_window_col_slice = self.watershed_window.toslices()
             shifts: list[tuple[int, int]] = []
             min_x_delta = 0 - self.watershed_window.col_off
@@ -231,11 +231,11 @@ class Transpose:
         Returns:
             Polygon: The valid spaces polygon.
         """
-        if self._valid_spaces_polygon == None:
+        if self._valid_spaces_polygon is None:
             self._valid_spaces_polygon = self._array_to_polygon(self.valid_spaces)
         return self._valid_spaces_polygon
 
-    def max_transpose(self, callable: Callable[[np.ndarray], Any] | None = None) -> tuple[Polygon, Affine, Any | None]:
+    def max_transpose(self, func: Callable[[np.ndarray], Any] | None = None) -> tuple[Polygon, Affine, Any | None]:
         """
         Calculate the maximum transpose of the watershed mask over the data array.
 
@@ -245,7 +245,7 @@ class Transpose:
         it overwrites the max stats, max shift, and max transpose array.
 
         Args:
-            callable (Callable[[np.ndarray], Any] | None): A callable to apply to the data array.
+            func (Callable[[np.ndarray], Any] | None): A callable to apply to the data array.
 
         Returns:
             tuple[Polygon, Affine, Any | None]: The resulting polygon, affine transformation, and results.
@@ -263,11 +263,11 @@ class Transpose:
                 adjusted_row_start:adjusted_row_stop, adjusted_col_start:adjusted_col_stop
             ]
             mean = np.nanmean(data_clipped)
-            if max_mean == None or mean > max_mean:
+            if max_mean is None or mean > max_mean:
                 max_mean = mean
                 max_shift = (float(x_delta * self.x_cellsize), float(y_delta * self.y_cellsize))
-                if callable:
-                    results = callable(data_clipped)
+                if func:
+                    results = func(data_clipped)
         poly = self._array_to_polygon(self.watershed_mask)
         poly = translate(poly, *max_shift)
         aff = Affine.translation(*max_shift)
