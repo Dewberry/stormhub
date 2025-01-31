@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Union
 
 import fiona.errors
 import geopandas as gpd
@@ -15,12 +15,20 @@ PROJ_EPSG = "proj:epsg"
 
 class HydroDomain(Item):
     """
-    Options include watershed, transposition_region, valid_transposition_region
+    Initialize a hydrological domain Item.
+
+    Args:
+        item_id (str): The ID of the Item.
+        geometry (str | Polygon): The Item geometry.
+        hydro_domain_type (str): Hydrological domain type. Options include 'watershed', 'transposition_region', and 'valid_transposition_region'.
+        relevant_datetime (str | datetime, optional): Datetime used for the item. If one is not provided then the item creation time is used.
+        relevant_datetime_description (str): Description of the datetime.
+        **kwargs (Any): Additional keyword arguments.
     """
 
     def __init__(
         self,
-        id: str,
+        item_id: str,
         geometry: str | Polygon,
         hydro_domain_type: str,
         relevant_datetime: str | datetime = None,
@@ -28,7 +36,7 @@ class HydroDomain(Item):
         **kwargs: Any,
     ):
 
-        self.id = id
+        self.item_id = item_id
         self.geometry = self.load_geometry(geometry)
         if hydro_domain_type not in ["watershed", "transposition_region", "valid_transposition_region"]:
             raise ValueError(
@@ -64,7 +72,7 @@ class HydroDomain(Item):
             self.properties["description"] = self.description
 
         super().__init__(
-            id=self.id,
+            id=self.item_id,
             geometry=mapping(self.geometry),
             bbox=self.geometry.bounds,
             datetime=self.relevant_datetime,
@@ -83,8 +91,9 @@ class HydroDomain(Item):
 
     @classmethod
     def from_item(cls, item: Item) -> "HydroDomain":
+        """Create a HydroDomain instance from a STAC item."""
         return cls(
-            id=item.id,
+            item_id=item.id,
             geometry=shape(item.geometry),
             hydro_domain_type=item.properties.get(HYDRO_DOMAIN_TYPE),
             relevant_datetime=item.properties.get("datetime"),
@@ -95,12 +104,13 @@ class HydroDomain(Item):
         ProjectionExtension.add_to(self)
         # StorageExtension.add_to(self)
 
-    def _ensure_datetime(self, dt):
+    def _ensure_datetime(self, dt: str) -> datetime:
         if isinstance(dt, str):
             return datetime.datetime.fromisoformat(dt)
         return dt or datetime.datetime.now()
 
-    def load_geometry(self, geometry_source) -> Polygon:
+    def load_geometry(self, geometry_source: Union[str, Polygon]) -> Polygon:
+        """Load geometry from str or Polygon object."""
         if isinstance(geometry_source, str):
             try:
                 gdf = gpd.read_file(geometry_source)
