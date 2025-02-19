@@ -267,6 +267,13 @@ class AORCItem(Item):
             edgecolor="gray",
         )
         ax.add_patch(valid_area_plt_polygon)
+        watershed_plt_polygon = patches.Polygon(
+            np.column_stack(self.watershed_geometry.exterior.coords.xy),
+            lw=0.7,
+            facecolor="none",
+            edgecolor="gray",
+        )
+        ax.add_patch(watershed_plt_polygon)
         transposed_watershed_plt_polygon = patches.Polygon(
             np.column_stack(self._transposed_watershed.exterior.coords.xy),
             lw=1,
@@ -283,7 +290,7 @@ class AORCItem(Item):
             filename = f"{self.item_id}.thumbnail.png"
             fn = os.path.join(self.local_directory, filename)
             fig.savefig(fn, bbox_inches="tight")
-            asset = Asset(fn, media_type=MediaType.PNG, roles=["thumbnail"])
+            asset = Asset(filename, media_type=MediaType.PNG, roles=["thumbnail"])
             self.add_asset("thumbnail", asset)
         if return_fig:
             return fig

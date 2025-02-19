@@ -312,10 +312,10 @@ class StormCatalog(pystac.Catalog):
         """
         for collection in self.get_all_collections():
             for asset in collection.assets.values():
-                if self.spm.collection_dir(collection.id) in asset.href:
-                    asset.href = asset.href.replace(self.spm.collection_dir(collection.id), ".")
-                elif self.spm.catalog_dir in asset.href:
-                    asset.href = asset.href.replace(self.spm.catalog_dir, "..")
+                if self.spm.collection_dir(collection.id).replace('\\', '/') in asset.href:
+                    asset.href = asset.href.replace(self.spm.collection_dir(collection.id).replace('\\', '/'), ".")
+                elif self.spm.catalog_dir.replace('\\', '/') in asset.href:
+                    asset.href = asset.href.replace(self.spm.catalog_dir.replace('\\', '/'), "..")
 
             for item in collection.get_all_items():
                 for asset in item.assets.values():
@@ -342,21 +342,21 @@ class StormCatalog(pystac.Catalog):
         try:
             title = hydro_domain.title
         except AttributeError:
-            title = hydro_domain.item_id
+            title = hydro_domain.id
 
         self.add_link(
             Link(
-                rel="Hydro_Domains",
-                target=self.spm.catalog_asset(hydro_domain.item_id).replace(self.spm.catalog_dir, "."),
+                rel="item",
+                target=self.spm.catalog_asset(hydro_domain.id).replace(self.spm.catalog_dir, "."),
                 title=title,
                 media_type=pystac.MediaType.GEOJSON,
                 extra_fields={
-                    "Name": hydro_domain.item_id,
-                    "Description": f"Input {hydro_domain.item_id} used to generate this catalog",
+                    "Name": hydro_domain.id,
+                    "Description": f"Input {hydro_domain.id} used to generate this catalog",
                 },
             )
         )
-        return hydro_domain.item_id
+        return hydro_domain.id
 
     def get_storm_collection(self, collection_id: str) -> StormCollection:
         """
@@ -518,6 +518,7 @@ def storm_search(
     catalog: StormCatalog,
     storm_start_date: datetime,
     storm_duration_hours: int,
+    por_rank: int= None,
     return_item: bool = False,
     scale_max: float = 12.0,
     collection_id: str = None,
@@ -547,8 +548,10 @@ def storm_search(
         watershed.id,
         storm_duration_hours,
     )
-
-    item_id = f"{storm_start_date.strftime('%Y-%m-%dT%H')}"
+    if por_rank:
+        item_id = f"{por_rank}"
+    else:
+        item_id = f"{storm_start_date.strftime('%Y-%m-%dT%H')}"
     item_dir = catalog.spm.collection_item_dir(collection_id, item_id)
 
     event_item = AORCItem(
@@ -580,6 +583,46 @@ def storm_search(
             "centroid": centroid,
             "aorc:statistics": event_stats,
         }
+
+
+def serial_processor(
+    func: callable,
+    catalog: StormCatalog,
+    storm_duration: int,
+    output_csv: str,
+    event_dates: list[datetime],
+    with_tb: bool = False,
+):
+    """
+    Run function in serial using only one processor.
+
+    Args:
+        func (callable): The function to run.
+        catalog (StormCatalog): The storm catalog.
+        storm_duration (int): The duration of the storm.
+        output_csv (str): Path to the output CSV file.
+        event_dates (list[datetime]): List of event dates.
+        with_tb (bool): Whether to include traceback in error logs.
+    """
+    if not os.path.exists(output_csv):
+        with open(output_csv, "w", encoding="utf-8") as f:
+            f.write("storm_date,min,mean,max,x,y\n")
+
+    count = len(event_dates)
+
+    with open(output_csv, "a", encoding="utf-8") as f:
+        for date in event_dates:
+            try:
+                r = func(catalog, date, storm_duration)
+                f.write(storm_search_results_to_csv_line(r))
+                logging.info("%s processed (%d remaining)", r["storm_date"], count)
+                count -= 1
+            except Exception as e:
+                if with_tb:
+                    tb = traceback.format_exc()
+                    logging.error("Error processing: %s\n%s", e, tb)
+                else:
+                    logging.error("Error processing: %s", e)
 
 
 def multi_processor(
@@ -646,6 +689,7 @@ def collect_event_stats(
     num_workers: int = None,
     use_threads: bool = False,
     with_tb: bool = False,
+    use_parallel_processing: bool = True
 ):
     """
     Collect statistics for storm events.
@@ -658,6 +702,7 @@ def collect_event_stats(
         num_workers (int, optional): Number of workers to use.
         use_threads (bool): Whether to use threads instead of processes.
         with_tb (bool): Whether to include traceback in error logs.
+        use_parallel_processing (bool): Whether to process storm stats using parallel processing.
     """
 
     if not collection_id:
@@ -677,17 +722,29 @@ def collect_event_stats(
         num_workers = 15
 
     output_csv = os.path.join(collection_dir, "storm-stats.csv")
+    if use_parallel_processing:
+        logging.info("Using %s cpu's for collecting event stats", num_workers)
+        multi_processor(
+            func=storm_search,
+            catalog=catalog,
+            storm_duration=storm_duration,
+            output_csv=output_csv,
+            event_dates=event_dates,
+            num_workers=num_workers,
+            use_threads=use_threads,
+            with_tb=with_tb,
+        )
+    else:
+        logging.info("Processing event stats serially.")
+        serial_processor(
+            func=storm_search,
+            catalog=catalog,
+            storm_duration=storm_duration,
+            output_csv=output_csv,
+            event_dates=event_dates,
+            with_tb=with_tb,
+        )
 
-    multi_processor(
-        func=storm_search,
-        catalog=catalog,
-        storm_duration=storm_duration,
-        output_csv=output_csv,
-        event_dates=event_dates,
-        num_workers=num_workers,
-        use_threads=use_threads,
-        with_tb=with_tb,
-    )
 
 
 def create_items(
@@ -699,10 +756,10 @@ def create_items(
     with_tb: bool = False,
 ) -> List:
     """
-    Create items for storm events.
+    Create items for storm events, setting the item ID to `por_rank` instead of storm_date.
 
     Args:
-        event_dates (list[dict]): List of event dates.
+        event_dates (list[dict]): List of event metadata (includes storm_date & por_rank).
         catalog (StormCatalog): The storm catalog.
         collection_id (str, optional): The ID of the collection.
         storm_duration (int): The duration of the storm.
@@ -726,14 +783,22 @@ def create_items(
     if not num_workers:
         num_workers = os.cpu_count()
 
-    events = [e["storm_date"] for e in event_dates]
+    storm_data = [(e["storm_date"], e["por_rank"]) for e in event_dates]
+
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(
-                storm_search, catalog, storm_date, storm_duration, collection_id=collection_id, return_item=True
+                storm_search,
+                catalog,
+                storm_date,
+                storm_duration,
+                por_rank=por_rank,
+                collection_id=collection_id,
+                return_item=True,
             )
-            for storm_date in events
+            for storm_date, por_rank in storm_data
         ]
+
         for future in as_completed(futures):
             count -= 1
             try:
@@ -745,11 +810,11 @@ def create_items(
                 if with_tb:
                     tb = traceback.format_exc()
                     logging.error("Error processing: %s\n%s", e, tb)
-                    continue
                 else:
                     logging.error("Error processing: %s", e)
-                    continue
+
     return event_items
+
 
 
 def init_storm_catalog(
@@ -829,7 +894,12 @@ def get_item_from_catalog_link(links: list, link_title: str, spm: StacPathManage
         return None
     if len(matched_links) > 1:
         raise ValueError(f"Multiple links found with title: {link_title}")
-    absolute_path = f'{spm.catalog_dir}/{matched_links[0].target.replace("./", "")}'
+
+    relative_path = matched_links[0].target.replace("./", "")
+    absolute_path = os.path.join(spm.catalog_dir, relative_path)
+
+    absolute_path = os.path.abspath(absolute_path)
+
     item = pystac.read_file(absolute_path)
     if not isinstance(item, Item):
         raise ValueError(f"Expected an Item object at {absolute_path} not : {type(item)}")
@@ -928,6 +998,7 @@ def new_catalog(
     )
 
     storm_catalog.save()
+    logging.info("Catalog has been created.")
     return storm_catalog
 
 
@@ -989,11 +1060,10 @@ def new_collection(
     collection_id = storm_catalog.spm.storm_collection_id(storm_duration)
     logging.info("Creating collection `%s` for period %s - %s", collection_id, start_date, end_date)
 
-    stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     if dates:
         logging.info("Collecting event stats for %d dates", len(dates))
         collect_event_stats(dates, storm_catalog, collection_id, num_workers=num_workers, with_tb=with_tb)
-
+    stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     try:
         logging.info("Starting storm analysis for: %s", stats_csv)
         analyzer = StormAnalyzer(stats_csv, min_precip_threshold, storm_duration)
@@ -1019,6 +1089,7 @@ def new_collection(
 
     storm_catalog.add_collection_to_catalog(collection, override=True)
     storm_catalog.save_catalog()
+    return collection
 
 
 def resume_collection(
