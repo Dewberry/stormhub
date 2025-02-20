@@ -128,3 +128,10 @@ class StacPathManager:
 
     def collection_item_asset(self, collection_id: str, item_id: str, filename: str) -> str:
         return f"{self.catalog_dir}/{collection_id}/{item_id}/{filename}"
+
+
+def file_table(data: dict, col1: str, col2: str):
+    table = []
+    for k, v in data.items():
+        table.append({col1: k, col2: v})
+    return table
