@@ -3,7 +3,7 @@ import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 import pandas as pd
@@ -11,7 +11,9 @@ import scipy.stats as stats
 from dataretrieval import nwis
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
-from pystac import Asset, Item, MediaType
+from pystac import Asset, Item, MediaType, Collection
+import pystac
+
 
 from stormhub.hydro.plots import (
     plot_ams,
@@ -55,7 +57,6 @@ class UsgsGage(Item):
             },
             "site_retrieved": site_data["site_retrieved"],
         }
-
         start_datetime = None  # datetime.strptime(site_data["dv"]["begin_date"], "%Y-%m-%d")
         end_datetime = None  # datetime.strptime(site_data["dv"]["end_date"], "%Y-%m-%d")
 
@@ -180,3 +181,98 @@ class UsgsGage(Item):
 def from_stac(href: str) -> UsgsGage:
     """Create a UsgsGage from a STAC Item"""
     return UsgsGage.from_file(href)
+
+class GageCollection(pystac.Collection):
+    def __init__(self, collection_id: str, items: List[pystac.Item], href):
+        """
+        Initialize a GageCollection instance.
+
+        Args:
+            collection_id (str): The ID of the collection.
+            items (List[pystac.Item]): List of STAC items to include in the collection.
+        """
+        spatial_extents = [item.bbox for item in items if item.bbox]
+        temporal_extents = [item.datetime for item in items if item.datetime is not None]
+
+        collection_extent = pystac.Extent(
+            spatial=pystac.SpatialExtent(
+                bboxes=[
+                    [
+                        min(b[0] for b in spatial_extents),
+                        min(b[1] for b in spatial_extents),
+                        max(b[2] for b in spatial_extents),
+                        max(b[3] for b in spatial_extents),
+                    ]
+                ]
+            ),
+            temporal=pystac.TemporalExtent(intervals=[[min(temporal_extents), max(temporal_extents)]]),
+        )
+
+        super().__init__(
+            id=collection_id,
+            description="STAC collection generated from gage items.",
+            extent=collection_extent,
+            href = href
+        )
+
+        for item in items:
+            self.add_item_to_collection(item)
+
+
+    def add_item_to_collection(self, item: Item, override: bool = False):
+        """
+        Add an item to the collection.
+
+        Args:
+            item (Item): The STAC item to add.
+            override (bool): Whether to override an existing item with the same ID.
+        """
+        existing_ids = {item.id for item in self.get_all_items()}
+
+        if item.id in existing_ids:
+            if override:
+                self.remove_item(item.id)
+                item.set_parent(self)
+                self.add_item(item)
+                logging.info(f"Overwriting (existing) item with ID '{item.id}'.")
+            else:
+                logging.error(
+                    f"Item with ID '{item.id}' already exists in the collection. Use `override=True` to overwrite."
+                )
+        else:
+            item.set_parent(self)
+            self.add_item(item)
+            logging.info(f"Added item with ID '{item.id}' to the collection.")
+
+def new_gage_collection(gage_numbers, directory):
+    base_dir = Path(directory)
+    gages_dir = base_dir.joinpath("gages")
+    gages_dir.mkdir(parents=True, exist_ok=True)
+    collection_href = base_dir.joinpath("collection.json")
+
+    items = []
+    for gage_number in gage_numbers:
+        try:
+            gage_item_dir = gages_dir.joinpath(gage_number)
+            gage_item_dir.mkdir(parents=True, exist_ok=True)
+
+            gage = UsgsGage.from_usgs(gage_number, href=str(gage_item_dir.joinpath(f"{gage_number}.json")))
+            gage.get_flow_stats(str(gage_item_dir))
+            gage.get_peaks(str(gage_item_dir))
+
+            for asset in gage.assets.values():
+                asset.href = os.path.relpath(asset.href, gage_item_dir).replace("\\", "/")
+
+            gage.save_object()
+            items.append(gage)
+        except:
+            logging.error(f"{gage_number} failed")
+
+    collection = GageCollection("gages", items, str(collection_href))
+
+    catalog = pystac.Catalog(id='gage_catalog',
+                         description='This Catalog is a basic demonstration of how to include a Collection in a STAC Catalog.')
+    catalog.add_child(collection)
+    catalog.normalize_and_save(root_href=str(base_dir),
+                            catalog_type=pystac.CatalogType.SELF_CONTAINED)
+
