@@ -7,11 +7,13 @@ from typing import Optional, List
 
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 import scipy.stats as stats
-from dataretrieval import nwis
+from shapely.geometry import shape
+from dataretrieval import nwis, NoSitesError
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
-from pystac import Asset, Item, MediaType, Collection
+from pystac import Asset, Item, MediaType, Collection, RelType, Link
 import pystac
 
 
@@ -25,6 +27,7 @@ from stormhub.utils import file_table
 
 
 class UsgsGage(Item):
+    """A class representing a USGS gage as a STAC item."""
 
     @classmethod
     def from_usgs(cls, gage_number: str, href: Optional[str] = None, **kwargs):
@@ -57,23 +60,33 @@ class UsgsGage(Item):
             },
             "site_retrieved": site_data["site_retrieved"],
         }
-        start_datetime = None  # datetime.strptime(site_data["dv"]["begin_date"], "%Y-%m-%d")
-        end_datetime = None  # datetime.strptime(site_data["dv"]["end_date"], "%Y-%m-%d")
+        start_datetime, end_datetime = cls.start_end_dates(gage_number)
+        if properties["dv"]['begin_date'] is None and properties["dv"]['end_date'] is None:
+            properties["dv"]['end_date'] = end_datetime.strftime("%Y-%m-%d")
+            properties["dv"]['begin_date'] = start_datetime.strftime("%Y-%m-%d")
+
 
         logging.info(f"Creating UsgsGage {gage_number} {site_data['station_nm']}")
 
-        return cls(
-            gage_number,
-            geometry,
-            bbox,
-            datetime.now(),
-            properties,
-            start_datetime,
-            end_datetime,
-            None,
-            href,
+        usgs_gage =  cls(
+            id = gage_number,
+            geometry=geometry,
+            bbox=bbox,
+            datetime=datetime.now(),
+            properties=properties,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            href=href,
             **kwargs,
         )
+
+        gage_url = f"https://waterdata.usgs.gov/nwis/inventory/?site_no={properties['site_no']}"
+        usgs_gage.add_link(Link(
+            rel=RelType.VIA,
+            target=gage_url,
+            title="USGS NWIS Site Information"
+        ))
+        return usgs_gage
 
     def __repr__(self):
         return f"<UsgsGage {self.id} {self.properties['station_nm']}>"
@@ -104,15 +117,32 @@ class UsgsGage(Item):
             },
         }
 
+    def start_end_dates(gage_id: str):
+        """Retrieve start and end dates from oldest and newest daily value records."""
+
+        startDate = "1900-01-01"
+        endDate = datetime.now().strftime("%Y-%m-%d")
+        dv = nwis.get_dv(gage_id, startDate, endDate)[0]
+        dv_sorted = dv.sort_index()
+
+        return dv_sorted.index.min().to_pydatetime(), dv_sorted.index.max().to_pydatetime()
+
     def get_peaks(self, item_dir: str, make_plots: bool = True):
         gage_id = self.properties["site_no"]
-        df = nwis.get_record(service="peaks", sites=[gage_id])
+        try:
+            df = nwis.get_record(service="peaks", sites=[gage_id])
+        except NoSitesError:
+            logging.warning(f"Peaks could not be found for gage id: {gage_id}")
+            return
         file_name = os.path.join(item_dir, f"{gage_id}-ams.pq")
         if not os.path.exists(item_dir):
             os.makedirs(item_dir)
         df.to_parquet(file_name)
-
-        peaks = self.log_pearson_iii(df["peak_va"])
+        try:
+            peaks = self.log_pearson_iii(df["peak_va"])
+        except ValueError:
+            logging.warning(f"LP3 peaks stats could not be calculated for gage id: {gage_id}")
+            return
         asset = Asset(
             file_name,
             media_type=MediaType.PARQUET,
@@ -125,21 +155,21 @@ class UsgsGage(Item):
         if make_plots:
             # AMS Plot 1
             filename = os.path.join(item_dir, f"{gage_id}-ams.png")
-            _ = plot_ams(df, gage_id, filename)
+            plot_ams(df, gage_id, filename)
 
             asset = Asset(filename, media_type=MediaType.PNG, roles=["thumbnail"])
             self.add_asset("ams_plot", asset)
 
             # AMS Plot 2
             filename = os.path.join(item_dir, f"{gage_id}-ams-seasonal.png")
-            _ = plot_ams_seasonal(df, gage_id, filename)
+            plot_ams_seasonal(df, gage_id, filename)
 
             asset = Asset(filename, media_type=MediaType.PNG, roles=["thumbnail"])
             self.add_asset("ams_seasons_plot", asset)
 
             # LPII Plot
             filename = os.path.join(item_dir, f"{gage_id}-ams-lpiii.png")
-            _ = plot_log_pearson_iii(df["peak_va"], gage_id, filename)
+            plot_log_pearson_iii(df["peak_va"], gage_id, filename)
 
             asset = Asset(filename, media_type=MediaType.PNG, roles=["thumbnail"])
             self.add_asset("ams_LPIII_plot", asset)
@@ -157,7 +187,12 @@ class UsgsGage(Item):
 
     def get_flow_stats(self, item_dir: str, make_plots: bool = True):
         gage_id = self.properties["site_no"]
-        df = nwis.get_stats(sites=gage_id)[0]
+        try:
+            df = nwis.get_stats(sites=gage_id)[0]
+        except IndexError:
+            logging.warning(f"Flow stats could not be found for gage_id: {gage_id}")
+            return
+
         file_name = os.path.join(item_dir, f"{gage_id}-flow-stats.pq")
 
         if not os.path.exists(item_dir):
@@ -172,7 +207,7 @@ class UsgsGage(Item):
         if make_plots:
             # AMS Plot 1
             filename = os.path.join(item_dir, f"{gage_id}-flow-stats.png")
-            _ = plot_nwis_statistics(df, gage_id, filename)
+            plot_nwis_statistics(df, gage_id, filename)
 
             asset = Asset(filename, media_type=MediaType.PNG, roles=["thumbnail"])
             self.add_asset("flow_statistics_plot", asset)
@@ -244,11 +279,60 @@ class GageCollection(pystac.Collection):
             self.add_item(item)
             logging.info(f"Added item with ID '{item.id}' to the collection.")
 
-def new_gage_collection(gage_numbers, directory):
+    def items_to_geojson(self, items: List[pystac.Item], geojson_dir: str):
+        """Adds a list of STAC items to a geojson and saves it as a collection asset."""
+        records = []
+        for item in items:
+            geom = shape(item.geometry)
+            records.append({"site_no": item.properties.get("site_no"),
+            "geometry": geom})
+
+        gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+        geojson_path = geojson_dir.joinpath("gages.geojson")
+        gdf.to_file(geojson_path, driver="GeoJSON")
+
+        geojson_asset = pystac.Asset(
+            href=str(geojson_path.relative_to(geojson_dir)).replace("\\", "/"),
+            media_type=pystac.MediaType.GEOJSON,
+            title="Gages GeoJSON"
+        )
+        self.add_asset("geojson", geojson_asset)
+
+def new_gage_catalog(catalog_id: str, local_directory: str, catalog_description: str) -> pystac.Catalog:
+    """
+    Creates a new STAC catalog for storing USGS gage collection.
+
+    Parameters:
+        catalog_id (str): Unique id for the STAC catalog.
+        local_directory (Optional[str]): Directory where the catalog will be saved.
+        catalog_description (str): The description of the catalog.
+
+    Returns:
+        pystac.Catalog: The created STAC catalog.
+    """
+
+    if not local_directory:
+        local_directory = os.getcwd()
+
+    catalog = pystac.Catalog(id=catalog_id, description=catalog_description)
+    catalog.normalize_and_save(root_href=local_directory, catalog_type=pystac.CatalogType.SELF_CONTAINED)
+    return catalog
+
+def new_gage_collection(catalog: pystac.Catalog, gage_numbers: List[str], directory: str) -> None:
+    """
+    Creates a new STAC collection for USGS gages and adds it to an existing catalog.
+
+    Parameters:
+        catalog (pystac.Catalog): The STAC catalog which the collection will be added to.
+        gage_numbers (List[str]): A list of USGS gage site numbers to add to the collection.
+        directory (str): The directory where the STAC collection and items will be stored.
+    """
+
     base_dir = Path(directory)
     gages_dir = base_dir.joinpath("gages")
     gages_dir.mkdir(parents=True, exist_ok=True)
     collection_href = base_dir.joinpath("collection.json")
+
 
     items = []
     for gage_number in gage_numbers:
@@ -265,13 +349,12 @@ def new_gage_collection(gage_numbers, directory):
 
             gage.save_object()
             items.append(gage)
-        except:
-            logging.error(f"{gage_number} failed")
+        except Exception as e:
+            logging.error(f"Gage {gage_number} failed eith exception: {e}")
 
     collection = GageCollection("gages", items, str(collection_href))
+    collection.items_to_geojson(items, gages_dir)
 
-    catalog = pystac.Catalog(id='gage_catalog',
-                         description='This Catalog is a basic demonstration of how to include a Collection in a STAC Catalog.')
     catalog.add_child(collection)
     catalog.normalize_and_save(root_href=str(base_dir),
                             catalog_type=pystac.CatalogType.SELF_CONTAINED)
