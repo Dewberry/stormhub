@@ -2,7 +2,7 @@
 Getting Started
 ################
 
-This section provides a high level overview for using stormhub for production, including starting the stormhub server and create objects.
+This section provides a high level overview for using stormhub for production, including starting the stormhub server and creating objects.
 
 Installation
 ------------
@@ -18,20 +18,21 @@ have Python already installed and setup:
 
 Note that it is highly recommended to create a python `virtual environment
 <https://docs.python.org/3/library/venv.html>`_ to install, test, and run
-stormhub. 
+stormhub. It is also recommended to avoid use of Windows Subsystem for Linux (WSL)
+as issues can arise with the parallel processing within stormhub.
 
 
 Starting the server
 -------------------
 
 For convenience, a local file server is provided. This server is not necessary for data
-production, but is useful for visualizing and exploring the data. 
+production, but is useful for visualizing and exploring the data.
 
 **Start the stormhub file:**
 
    .. code-block:: bash
 
-      stormhub-server <path-to-local-dir> 
+      stormhub-server <path-to-local-dir>
 
 
 Local file server is useful for interacting with STAC browser for viewing the data locally. This is not required....
@@ -44,7 +45,7 @@ Local file server is useful for interacting with STAC browser for viewing the da
 Workflows
 ---------
 
-A config file shown in below includes the information required to create a new catalog.
+A config file shown below includes the information required to create a new catalog.
 
 .. code-block:: json
 
@@ -62,7 +63,7 @@ A config file shown in below includes the information required to create a new c
    }
 
 
-The following snippet provides an example of how to build and create a storm catalog. Requires an example watershed and transposition domain (examples availble in the `repo <https://github.com/Dewberry/stormhub/tree/main/catalogs/example-input-data>`_).
+The following snippet provides an example of how to build and create a storm catalog. Requires an example watershed and transposition domain (examples available in the `repo <https://github.com/Dewberry/stormhub/tree/main/catalogs/example-input-data>`_).
 
 .. code-block:: python
 

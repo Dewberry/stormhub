@@ -3,6 +3,7 @@ import logging
 import socket
 from datetime import datetime, timedelta
 from typing import List
+import os
 
 from pystac import Link, Collection
 from shapely.geometry import mapping, shape
@@ -97,11 +98,11 @@ def create_feature_collection_from_items(
 
 class StacPathManager:
     """
-    Builds consistent paths for STAC items and collections assuming a top level local catalog
+    Builds consistent paths for STAC items and collections assuming a top-level local catalog.
     """
 
     def __init__(self, local_catalog_dir: str):
-        self._catalog_dir = local_catalog_dir
+        self._catalog_dir = os.path.abspath(local_catalog_dir)
 
     @property
     def catalog_dir(self):
@@ -109,31 +110,31 @@ class StacPathManager:
 
     @property
     def catalog_file(self):
-        return f"{self._catalog_dir}/catalog.json"
+        return os.path.join(self._catalog_dir, "catalog.json")
 
     def storm_collection_id(self, duration: int) -> str:
         return f"{duration}hr-events"
 
     def catalog_item(self, item_id: str) -> str:
-        return f"{self.catalog_dir}/{item_id}/{item_id}.json"
+        return os.path.join(self.catalog_dir, item_id, f"{item_id}.json")
 
     def catalog_asset(self, item_id: str, asset_dir: str = "hydro_domains") -> str:
-        return f"{self.catalog_dir}/{asset_dir}/{item_id}.json"
+        return os.path.join(self.catalog_dir, asset_dir, f"{item_id}.json")
 
     def collection_file(self, collection_id: str) -> str:
-        return f"{self.catalog_dir}/{collection_id}/collection.json"
+        return os.path.join(self.catalog_dir, collection_id, "collection.json")
 
     def collection_dir(self, collection_id: str) -> str:
-        return f"{self.catalog_dir}/{collection_id}"
+        return os.path.join(self.catalog_dir, collection_id)
 
     def collection_asset(self, collection_id: str, filename: str) -> str:
-        return f"{self.catalog_dir}/{collection_id}/{filename}"
+        return os.path.join(self.catalog_dir, collection_id, filename)
 
     def collection_item_dir(self, collection_id: str, item_id: str) -> str:
-        return f"{self.catalog_dir}/{collection_id}/{item_id}"
+        return os.path.join(self.catalog_dir, collection_id, item_id)
 
     def collection_item(self, collection_id: str, item_id: str) -> str:
-        return f"{self.catalog_dir}/{collection_id}/{item_id}/{item_id}.json"
+        return os.path.join(self.catalog_dir, collection_id, item_id, f"{item_id}.json")
 
     def collection_item_asset(self, collection_id: str, item_id: str, filename: str) -> str:
-        return f"{self.catalog_dir}/{collection_id}/{item_id}/{filename}"
+        return os.path.join(self.catalog_dir, collection_id, item_id, filename)
