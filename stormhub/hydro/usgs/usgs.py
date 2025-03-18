@@ -11,9 +11,7 @@ import geopandas as gpd
 import scipy.stats as stats
 from shapely.geometry import shape
 from dataretrieval import nwis, NoSitesError
-from matplotlib import pyplot as plt
-from matplotlib.figure import Figure
-from pystac import Asset, Item, MediaType, Collection, RelType, Link
+from pystac import Asset, Item, MediaType, RelType, Link
 import pystac
 
 
