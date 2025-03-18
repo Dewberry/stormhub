@@ -1,7 +1,8 @@
-
 from dataretrieval import nwis, NoSitesError
 import geopandas as gpd
 from typing import Optional, List
+import logging
+
 
 def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = None) -> List[str]:
     """
@@ -14,7 +15,7 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
     Returns:
         List[str]: A list of USGS gage site numbers that meet the criteria.
     """
-
+    logging.info("Finding gages within watershed")
     watershed = gpd.read_file(watershed)
     bbox = [round(coord, 6) for coord in watershed.total_bounds.tolist()]
 
@@ -22,7 +23,7 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
 
     watershed_geom = watershed.iloc[0].geometry
     gages_within_watershed = gages_in_watershed_bbox[gages_in_watershed_bbox.within(watershed_geom)]
-    filtered_gages = gages_within_watershed[gages_within_watershed['site_no'].str.len() == 8]
+    filtered_gages = gages_within_watershed[gages_within_watershed["site_no"].str.len() == 8]
     gage_nums = filtered_gages["site_no"].to_list()
 
     if min_num_records is None:
@@ -35,4 +36,5 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
                 valid_gage_nums.append(gage_num)
         except NoSitesError:
             continue
+    logging.info(f"Found {len(valid_gage_nums)} valid gage numbers in watershed")
     return valid_gage_nums

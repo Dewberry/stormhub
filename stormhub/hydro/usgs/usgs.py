@@ -48,28 +48,21 @@ class UsgsGage(Item):
             "station_nm": site_data["station_nm"],
             "huc_cd": str(site_data["huc_cd"]),
             "drain_area_va": float(site_data["drain_area_va"]),
-            "dv": {
-                "begin_date": site_data["dv"]["begin_date"],
-                "end_date": site_data["dv"]["end_date"],
-                "count_nu": str(site_data["dv"]["count_nu"]),
-            },
-            "iv": {
-                "begin_date": site_data["iv"]["begin_date"],
-                "end_date": site_data["iv"]["end_date"],
-                "count_nu": str(site_data["iv"]["count_nu"]),
+            "daily_values": {
+                "begin_date": site_data["daily_values"]["begin_date"],
+                "end_date": site_data["daily_values"]["end_date"],
             },
             "site_retrieved": site_data["site_retrieved"],
         }
         start_datetime, end_datetime = cls.start_end_dates(gage_number)
-        if properties["dv"]['begin_date'] is None and properties["dv"]['end_date'] is None:
-            properties["dv"]['end_date'] = end_datetime.strftime("%Y-%m-%d")
-            properties["dv"]['begin_date'] = start_datetime.strftime("%Y-%m-%d")
-
+        if properties["daily_values"]["begin_date"] is None and properties["daily_values"]["end_date"] is None:
+            properties["daily_values"]["end_date"] = end_datetime.strftime("%Y-%m-%d")
+            properties["daily_values"]["begin_date"] = start_datetime.strftime("%Y-%m-%d")
 
         logging.info(f"Creating UsgsGage {gage_number} {site_data['station_nm']}")
 
-        usgs_gage =  cls(
-            id = gage_number,
+        usgs_gage = cls(
+            id=gage_number,
             geometry=geometry,
             bbox=bbox,
             datetime=datetime.now(),
@@ -81,11 +74,7 @@ class UsgsGage(Item):
         )
 
         gage_url = f"https://waterdata.usgs.gov/nwis/inventory/?site_no={properties['site_no']}"
-        usgs_gage.add_link(Link(
-            rel=RelType.VIA,
-            target=gage_url,
-            title="USGS NWIS Site Information"
-        ))
+        usgs_gage.add_link(Link(rel=RelType.VIA, target=gage_url, title="USGS NWIS Site Information"))
         return usgs_gage
 
     def __repr__(self):
@@ -105,15 +94,9 @@ class UsgsGage(Item):
             "huc_cd": resp["huc_cd"].iloc[0],
             "alt_datum_cd": resp["alt_datum_cd"].iloc[0],
             "site_retrieved": datetime.now().isoformat(),
-            "dv": {
+            "daily_values": {
                 "begin_date": resp["begin_date"].iloc[0] if "begin_date" in resp else None,
                 "end_date": resp["end_date"].iloc[0] if "end_date" in resp else None,
-                "count_nu": resp["count_nu"].iloc[0] if "count_nu" in resp else None,
-            },
-            "iv": {
-                "begin_date": resp["begin_date"].iloc[0] if "begin_date" in resp else None,
-                "end_date": resp["end_date"].iloc[0] if "end_date" in resp else None,
-                "count_nu": resp["count_nu"].iloc[0] if "count_nu" in resp else None,
             },
         }
 
@@ -217,6 +200,7 @@ def from_stac(href: str) -> UsgsGage:
     """Create a UsgsGage from a STAC Item"""
     return UsgsGage.from_file(href)
 
+
 class GageCollection(pystac.Collection):
     def __init__(self, collection_id: str, items: List[pystac.Item], href):
         """
@@ -247,12 +231,11 @@ class GageCollection(pystac.Collection):
             id=collection_id,
             description="STAC collection generated from gage items.",
             extent=collection_extent,
-            href = href
+            href=href,
         )
 
         for item in items:
             self.add_item_to_collection(item)
-
 
     def add_item_to_collection(self, item: Item, override: bool = False):
         """
@@ -284,8 +267,7 @@ class GageCollection(pystac.Collection):
         records = []
         for item in items:
             geom = shape(item.geometry)
-            records.append({"site_no": item.properties.get("site_no"),
-            "geometry": geom})
+            records.append({"site_no": item.properties.get("site_no"), "geometry": geom})
 
         gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
         geojson_path = geojson_dir.joinpath("gages.geojson")
@@ -294,9 +276,10 @@ class GageCollection(pystac.Collection):
         geojson_asset = pystac.Asset(
             href=str(geojson_path.relative_to(geojson_dir)).replace("\\", "/"),
             media_type=pystac.MediaType.GEOJSON,
-            title="Gages GeoJSON"
+            title="Gages GeoJSON",
         )
         self.add_asset("geojson", geojson_asset)
+
 
 def new_gage_catalog(catalog_id: str, local_directory: str, catalog_description: str) -> pystac.Catalog:
     """
@@ -318,6 +301,7 @@ def new_gage_catalog(catalog_id: str, local_directory: str, catalog_description:
     catalog.normalize_and_save(root_href=local_directory, catalog_type=pystac.CatalogType.SELF_CONTAINED)
     return catalog
 
+
 def new_gage_collection(catalog: pystac.Catalog, gage_numbers: List[str], directory: str) -> None:
     """
     Creates a new STAC collection for USGS gages and adds it to an existing catalog.
@@ -332,7 +316,6 @@ def new_gage_collection(catalog: pystac.Catalog, gage_numbers: List[str], direct
     gages_dir = base_dir.joinpath("gages")
     gages_dir.mkdir(parents=True, exist_ok=True)
     collection_href = base_dir.joinpath("collection.json")
-
 
     items = []
     for gage_number in gage_numbers:
@@ -356,6 +339,4 @@ def new_gage_collection(catalog: pystac.Catalog, gage_numbers: List[str], direct
     collection.items_to_geojson(items, gages_dir)
 
     catalog.add_child(collection)
-    catalog.normalize_and_save(root_href=str(base_dir),
-                            catalog_type=pystac.CatalogType.SELF_CONTAINED)
-
+    catalog.normalize_and_save(root_href=str(base_dir), catalog_type=pystac.CatalogType.SELF_CONTAINED)
