@@ -32,10 +32,23 @@ from stormhub.met.consts import (
 
 
 class AORCItem(Item):
+    """Initialize an AORC Item.
+
+    Args:
+        item_id (str): The ID of the item.
+        start_datetime (datetime.datetime): The AORC start datetime.
+        duration_hours (int): Duration of AORC data in hours.
+        watershed (str): Location of watershed geometry geojson.
+        transposition_domain (str): Location of transposition domain geometry geojson.
+        local_directory (str): Local directory path
+        watershed_name (str, optional): Name of watershed.
+        transposition_domain_name (str, optional): Name of transposition name.
+        **kwargs (Any): Additional keyword arguments.
+    """
 
     def __init__(
         self,
-        id: str,
+        item_id: str,
         start_datetime: datetime.datetime,
         duration_hours: int,
         watershed: str,
@@ -46,7 +59,7 @@ class AORCItem(Item):
         **kwargs: Any,
     ):
 
-        self.id = id
+        self.item_id = item_id
         self.duration_hours = f"{duration_hours}hrs"
         self.duration = duration_hours
         if not watershed_name:
@@ -78,7 +91,7 @@ class AORCItem(Item):
         self.start_datetime = start_datetime
         self.end_datetime = start_datetime + self.duration
         super().__init__(
-            self.id,
+            self.item_id,
             NULL_POLYGON,
             self.transposition_domain_geometry.bounds,
             self.start_datetime,
@@ -108,7 +121,7 @@ class AORCItem(Item):
     @property
     def aorc_paths(self) -> list[str]:
         "Construct s3 paths for AORC datasets for given start time and duration."
-        if self._aorc_paths == None:
+        if self._aorc_paths is None:
             if self.end_datetime.year == self.start_datetime.year:
                 self._aorc_paths = [f"{NOAA_AORC_S3_BASE_URL}/{self.start_datetime.year}.zarr"]
             else:
@@ -118,7 +131,7 @@ class AORCItem(Item):
                     year_list.append(current_year)
                     current_year += 1
                 self._aorc_paths = [f"{NOAA_AORC_S3_BASE_URL}/{year}.zarr" for year in year_list]
-            logging.debug(f"year_list for {self.start_datetime}: {self._aorc_paths }")
+            logging.debug("year_list for %s: %s", self.start_datetime, self._aorc_paths)
         return self._aorc_paths
 
     @property
@@ -128,11 +141,10 @@ class AORCItem(Item):
         - doesn't read the entire ZARR files, instead just reads slice of data corresponding to transposition domain geometry and limited to start and end time
         - adds ZARR files to assets if they don't exist already
         """
-        if self._aorc_source_data == None:
+        if self._aorc_source_data is None:
             s3_out = s3fs.S3FileSystem(anon=True)
             fileset = [s3fs.S3Map(root=aorc_path, s3=s3_out, check=False) for aorc_path in self.aorc_paths]
             ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
-            pyproj_crs = CRS.from_user_input(ds.rio.crs)
 
             transposition_geom_for_clip = self.transposition_domain_geometry
             bounds = transposition_geom_for_clip.bounds
@@ -170,7 +182,7 @@ class AORCItem(Item):
     @property
     def transpose(self) -> Transpose:
         "creates transpose class to use for transposition functions"
-        if self._transpose == None:
+        if self._transpose is None:
             watershed_geom_for_transpose = self.watershed_geometry
             self._transpose = Transpose(
                 self.sum_aorc["APCP_surface"], watershed_geom_for_transpose, AORC_X_VAR, AORC_Y_VAR
@@ -180,7 +192,7 @@ class AORCItem(Item):
     @property
     def sum_aorc(self) -> xr.DataArray:
         "sums AORC precipitation data over the duration"
-        if self._sum_aorc == None:
+        if self._sum_aorc is None:
             self._sum_aorc = self.aorc_source_data.sum(dim="time", skipna=True, min_count=1)
         return self._sum_aorc
 
@@ -238,7 +250,7 @@ class AORCItem(Item):
         - valid area of transposition
         - original transposition domain
         """
-        if self._transposed_watershed == None:
+        if self._transposed_watershed is None:
             self._transposed_watershed, self._transposition_transform, self._stats = self.transpose.max_transpose(
                 self._create_stats
             )
@@ -255,6 +267,13 @@ class AORCItem(Item):
             edgecolor="gray",
         )
         ax.add_patch(valid_area_plt_polygon)
+        watershed_plt_polygon = patches.Polygon(
+            np.column_stack(self.watershed_geometry.exterior.coords.xy),
+            lw=0.7,
+            facecolor="none",
+            edgecolor="gray",
+        )
+        ax.add_patch(watershed_plt_polygon)
         transposed_watershed_plt_polygon = patches.Polygon(
             np.column_stack(self._transposed_watershed.exterior.coords.xy),
             lw=1,
@@ -268,10 +287,10 @@ class AORCItem(Item):
             if not os.path.isdir(self.local_directory):
                 os.makedirs(self.local_directory)
 
-            filename = f"{self.id}.thumbnail.png"
+            filename = f"{self.item_id}.thumbnail.png"
             fn = os.path.join(self.local_directory, filename)
             fig.savefig(fn, bbox_inches="tight")
-            asset = Asset(fn, media_type=MediaType.PNG, roles=["thumbnail"])
+            asset = Asset(filename, media_type=MediaType.PNG, roles=["thumbnail"])
             self.add_asset("thumbnail", asset)
         if return_fig:
             return fig
@@ -279,9 +298,9 @@ class AORCItem(Item):
             plt.close()
 
 
-def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duration: int = 72):
+def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duration: int = 72) -> Polygon:
     """
-    Search a sample zarr dataset to identify valid spaces for transposition.'
+    Search a sample zarr dataset to identify valid spaces for transposition.
      datetime.datetime(1980, 5, 1) is used as a start time for the search.
     """
     s3 = s3fs.S3FileSystem(anon=True)
@@ -297,11 +316,10 @@ def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duratio
     )
 
     clipped_data = subset.rio.clip([shape(transposition_region.geometry)], drop=True, all_touched=True)
-    # size_gb = clipped_data[AORC_PRECIP_VARIABLE].nbytes / 1e9
     transpose = Transpose(
         clipped_data[AORC_PRECIP_VARIABLE].sum(dim="time", skipna=True, min_count=1),
         shape(watershed.geometry),
         AORC_X_VAR,
         AORC_Y_VAR,
     )
-    return transpose.valid_spaces_polygon  # , size_gb
+    return transpose.valid_spaces_polygon

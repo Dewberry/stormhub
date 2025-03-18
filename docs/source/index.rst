@@ -7,6 +7,7 @@ stormhub
    Technical Summary <tech_summary.rst>
    User Guide <user_guide.rst>
    API Reference <modules.rst>
+   Changelog <change_log.rst>
 
 
 .. note::
