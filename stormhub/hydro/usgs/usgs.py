@@ -1,18 +1,15 @@
 import logging
 import os
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
-import numpy as np
-import pandas as pd
 import geopandas as gpd
-import scipy.stats as stats
 from shapely.geometry import shape
 from dataretrieval import nwis, NoSitesError
 from pystac import Asset, Item, MediaType, RelType, Link
 import pystac
+from stormhub.hydro.utils import log_pearson_iii
 
 
 from stormhub.hydro.plots import (
@@ -29,6 +26,15 @@ class UsgsGage(Item):
 
     @classmethod
     def from_usgs(cls, gage_number: str, href: Optional[str] = None, **kwargs):
+        """Creates a STAC Item representing a USGS stream gage.
+
+        Parameters:
+            gage_number (str): USGS gage number.
+            href (Optional[str]): Item href for the created USGS gage item. Optional
+
+        Returns:
+            pystac.Item: A STAC Item representing the USGS gage.
+        """
         if href is None:
             href = f"{gage_number}.json"
 
@@ -80,7 +86,7 @@ class UsgsGage(Item):
 
     @staticmethod
     def _load_site_data(gage_number: str) -> dict:
-        """Query NWIS for site information"""
+        """Query NWIS for site information."""
         resp = nwis.get_record(sites=gage_number, service="site")
 
         return {
@@ -109,21 +115,27 @@ class UsgsGage(Item):
         return dv_sorted.index.min().to_pydatetime(), dv_sorted.index.max().to_pydatetime()
 
     def get_peaks(self, item_dir: str, make_plots: bool = True):
+        """Retrieve annual maximum series from NWIS and make the plots associated with those values."""
         gage_id = self.properties["site_no"]
+
         try:
             df = nwis.get_record(service="peaks", sites=[gage_id])
         except NoSitesError:
             logging.warning(f"Peaks could not be found for gage id: {gage_id}")
             return
+
         file_name = os.path.join(item_dir, f"{gage_id}-ams.pq")
+
         if not os.path.exists(item_dir):
             os.makedirs(item_dir)
         df.to_parquet(file_name)
+
         try:
-            peaks = self.log_pearson_iii(df["peak_va"])
+            peaks = log_pearson_iii(df["peak_va"])
         except ValueError:
             logging.warning(f"LP3 peaks stats could not be calculated for gage id: {gage_id}")
             return
+
         asset = Asset(
             file_name,
             media_type=MediaType.PARQUET,
@@ -155,19 +167,10 @@ class UsgsGage(Item):
             asset = Asset(filename, media_type=MediaType.PNG, roles=["thumbnail"])
             self.add_asset("ams_LPIII_plot", asset)
 
-    def log_pearson_iii(self, peak_flows: pd.Series, standard_return_periods: list = [2, 5, 10, 25, 50, 100, 500]):
-        log_flows = np.log10(peak_flows.values)
-        mean_log = np.mean(log_flows)
-        std_log = np.std(log_flows, ddof=1)
-        skew_log = stats.skew(log_flows)
-
-        return {
-            str(rp): int(10 ** (mean_log + stats.pearson3.ppf(1 - 1 / rp, skew_log) * std_log))
-            for rp in standard_return_periods
-        }
-
     def get_flow_stats(self, item_dir: str, make_plots: bool = True):
+        """Retrieve and plot day of the year flow statistics."""
         gage_id = self.properties["site_no"]
+
         try:
             df = nwis.get_stats(sites=gage_id)[0]
         except IndexError:
@@ -183,7 +186,7 @@ class UsgsGage(Item):
 
         asset = Asset(file_name, media_type=MediaType.PARQUET, roles=["data"])
 
-        self.add_asset("annual_maxima_series", asset)
+        self.add_asset("flow_stats", asset)
 
         if make_plots:
             # AMS Plot 1
@@ -204,7 +207,7 @@ class GageCollection(pystac.Collection):
         """
         Initialize a GageCollection instance.
 
-        Args:
+        Parameters:
             collection_id (str): The ID of the collection.
             items (List[pystac.Item]): List of STAC items to include in the collection.
         """
@@ -239,7 +242,7 @@ class GageCollection(pystac.Collection):
         """
         Add an item to the collection.
 
-        Args:
+        Parameters:
             item (Item): The STAC item to add.
             override (bool): Whether to override an existing item with the same ID.
         """
