@@ -42,15 +42,15 @@ if __name__ == "__main__":
 
     # Catalog Args
     root_dir = "<local-path>"
-    config_file = f"{root_dir}/duwamish/config.json"
-    catalog_id = "duwamish"
+    config_file = f"{root_dir}/<watershed_name>/config.json"
+    catalog_id = "<watershed_name>"
     local_directory = f"{root_dir}"
 
     storm_catalog = new_catalog(
         catalog_id,
         config_file,
         local_directory=local_directory,
-        catalog_description="Duwamish Catalog",
+        catalog_description="watershed Catalog",
     )
 
     # All Collection Args
