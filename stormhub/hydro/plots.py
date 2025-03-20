@@ -2,9 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
+from stormhub.hydro.utils import log_pearson_iii
 
 
 def plot_ams_seasonal(df, site: str, save_to: str):
+    """Ranks and Plots annual maxima series statistics, colored by season."""
     # Map months to seasons
     df["season"] = ((df.index.month % 12 + 3) // 3).map({1: "Winter", 2: "Spring", 3: "Summer", 4: "Fall"})
 
@@ -37,6 +39,7 @@ def plot_ams_seasonal(df, site: str, save_to: str):
 
 
 def plot_ams(df: pd.DataFrame, site: str, save_to: str):
+    """Plots annual maxima series statistics."""
     fig, ax = plt.subplots()
     ax.scatter(df.index, df["peak_va"], color="blue", edgecolor="black", linewidth=0.5, s=25)
 
@@ -49,16 +52,7 @@ def plot_ams(df: pd.DataFrame, site: str, save_to: str):
 
 
 def plot_nwis_statistics(stats_df: pd.DataFrame, site: str, save_to: str):
-    """
-    Plots streamflow statistics from NWIS.
-
-    Parameters:
-        stats_df (pd.DataFrame): DataFrame containing NWIS statistical data.
-        site (str): USGS site number.
-
-    Returns:
-        matplotlib.figure.Figure: The generated plot.
-    """
+    """Plots streamflow statistics from NWIS."""
     # Ensure data is sorted by day of the year
     stats_df = stats_df.sort_values(by=["month_nu", "day_nu"])
 
@@ -124,24 +118,17 @@ def plot_log_pearson_iii(
     Plots the return period (recurrence interval) vs. peak flow using Log-Pearson Type III analysis.
 
     Parameters:
-        peak_flows (array-like): List or array of peak flow values.
-
-    Returns:
-        matplotlib.figure.Figure: The generated plot.
+        peak_flows (pd.Series): List or array of peak flow values.
     """
-    log_flows = np.log10(peak_flows.values)
-    mean_log = np.mean(log_flows)
-    std_log = np.std(log_flows, ddof=1)
-    skew_log = stats.skew(log_flows)
-    lp3_estimates = []
+
     standard_return_periods = [2, 5, 10, 25, 50, 100, 500]
-    for rp in standard_return_periods:
-        lp3_estimates.append(10 ** (mean_log + stats.pearson3.ppf(1 - 1 / rp, skew_log) * std_log))
+    lp3_estimates = log_pearson_iii(peak_flows, standard_return_periods)
+    lp3_values = lp3_estimates.values()
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(
         standard_return_periods,
-        lp3_estimates,
+        lp3_values,
         marker="o",
         linestyle="-",
         color="blue",
