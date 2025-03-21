@@ -13,7 +13,7 @@ stormhub
 .. note::
    This version is tagged as **testing**. Features and APIs are unstable and subject to change.
 
-:code:`stormhub` is an open-source Python library designed to access and process publicly available hydrometeorological data to create catalogs, metadata, and data products for use in hydrologic modeling. This project automates the generation of STAC catalogs from storm and stream gage data, to aid in data development and management for probabilistic studies, including applications of stochastic storm transposition (SST). 
+:code:`stormhub` is an open-source Python library designed to access and process publicly available hydrometeorological data to create catalogs, metadata, and data products for use in hydrologic modeling. This project automates the generation of STAC catalogs from storm and stream gage data, to aid in data development and management for probabilistic studies, including applications of stochastic storm transposition (SST).
 StormHub aims to follow the principles of `FAIR <https://www.nature.com/articles/sdata201618>`_ (Findable, Accessible, Interoperable, and Reusable) data practices, ensuring that all catalogs can be easily shared, published, and integrated into broader workflows.
 
 Storm Transposition Module
@@ -35,15 +35,16 @@ This module extends the work of `RainyDay2 <https://her.cee.wisc.edu/rainyday/ra
 - Links to associated watershed and transposition region STAC items.
 - Supports creation of **DSS files** (hourly gridded) for use in HEC-HMS for hydrologic modeling.
 
-USGS Gage Catalog Module *(Upcoming)*
+USGS Gage Catalog Module
 -------------------------------------
 
-This future module will create STAC catalogs of USGS stream gages, including frequency analysis data and metadata notes providing a *moment in time* copy of historic observations including discussion of any omitted data points for reference.
+This module creates a STAC catalog of USGS stream gages, including frequency analysis data and metadata notes providing a *moment in time* copy of historic observations.
 
-The catalogs will store:
+The catalog stores USGS gage items with:
 - Frequency data as assets.
-- Metadata supporting flood frequency analysis.
+- Metadata and plots supporting flood frequency analysis.
 - Links to related datasets for direct comparison within SST workflows.
+
 
 STAC Server
 -----------
