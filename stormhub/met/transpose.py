@@ -262,12 +262,13 @@ class Transpose:
             data_clipped = self.np_data_array[
                 adjusted_row_start:adjusted_row_stop, adjusted_col_start:adjusted_col_stop
             ]
-            mean = np.nanmean(data_clipped)
+            data_clipped_masked = np.ma.masked_array(data_clipped, ~self.watershed_mask_clipped)
+            mean = np.nanmean(data_clipped_masked)
             if max_mean is None or mean > max_mean:
                 max_mean = mean
                 max_shift = (float(x_delta * self.x_cellsize), float(y_delta * self.y_cellsize))
                 if func:
-                    results = func(data_clipped)
+                    results = func(data_clipped_masked)
         poly = self._array_to_polygon(self.watershed_mask)
         poly = translate(poly, *max_shift)
         aff = Affine.translation(*max_shift)
