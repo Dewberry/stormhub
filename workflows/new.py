@@ -4,11 +4,14 @@ import json
 import logging
 import shutil
 import pystac
+import os
+
 
 def save_config(config_file="params-config.json", **kwargs):
     """Automatically saves configuration parameters to a JSON file."""
     with open(config_file, "w") as file:
         json.dump(kwargs, file, indent=4)
+
 
 def add_config_to_collection(storm_collection, config_filename="params-config.json"):
     """Add config file to collection assets."""
@@ -26,7 +29,7 @@ def add_config_to_collection(storm_collection, config_filename="params-config.js
         pystac.Asset(
             href=config_filename,
             media_type=pystac.MediaType.JSON,
-            description= "Contains the configuration parameters used to generate the bighorn storm items.",
+            description="Contains the configuration parameters used to generate the storm items.",
             roles=["metadata"],
             title="Configuration Parameters",
         ),
@@ -34,21 +37,20 @@ def add_config_to_collection(storm_collection, config_filename="params-config.js
     collection.save_object()
 
 
-
 if __name__ == "__main__":
     initialize_logger()
 
     # Catalog Args
     root_dir = "<local-path>"
-    config_file = f"{root_dir}/duwamish/config.json"
-    catalog_id = "duwamish"
+    config_file = f"{root_dir}/<watershed_name>/config.json"
+    catalog_id = "<watershed_name>"
     local_directory = f"{root_dir}"
 
     storm_catalog = new_catalog(
         catalog_id,
         config_file,
         local_directory=local_directory,
-        catalog_description="Duwamish Catalog",
+        catalog_description="watershed Catalog",
     )
 
     # All Collection Args

@@ -131,3 +131,38 @@ These files can be created and added to the event item alongside metadata and ot
 
 Where possible, `NOAA Atlas-14 precipitation frequency estimates <https://hdsc.nws.noaa.gov/hdsc/pfds/pfds_gis.html>`_ may be considered to normalize the average accumulation for each storm.
 .. image:: ./images/2yr03da.png
+
+==========================
+USGS Gage Module
+==========================
+
+Data Source
+-----------
+The USGS gage data comes from the National Water Information System (NWIS) using the `dataretrieval package <https://github.com/DOI-USGS/dataretrieval-python>`_. The package is designed to retrieve the major data types of U.S. Geological Survey (USGS) hydrology data that are available on the Web, as well as data from the Water Quality Portal (WQP), which currently houses water quality data from the Environmental Protection Agency (EPA), U.S. Department of Agriculture (USDA), and USGS.
+
+Workflow
+--------
+For creating a gage catalog, the following general steps are used:
+
+1. **Select gage numbers to be added**: A function has been provided to select USGS gage numbers within a given watershed(geojson). A minimum lenth of record(in years) can be provided so that only gage numbers with a mimimum amount of data is selected. Defaults to 15 years. Some of the plots and data handling may behave unexpectedly if gages have little data. A list of gage numbers can be set manually if desired.
+
+2. **Create STAC Items for all gages**: Iterate through all the given USGS gages, extract and plot data including gage metadata, and make a STAC item from each one. Data is exported and added as assets along with the plots for each gage item.
+
+3. **Create Collection**: Add all gages to a collection and create a catalog which contains all created data. A geojson is created with all the gages and added as an asset to the collection.
+
+Results
+-------
+
+A Gage Catalog is created containing a collection of all the created USGS gage Items.
+
+.. image:: ./images/gage_collection.png
+
+Each gage Item contains general metadata, plots and data as assets, and a link to the USGS gage web page.
+
+.. image:: ./images/gage_item.png
+
+Plots for each gage include flow statistics by day of year, ranked seasonality plot, and Log-Pearson Type III analysis.
+
+.. image:: ./images/06218500-flow-stats.png
+.. image:: ./images/06218500-ams-seasonal.png
+.. image:: ./images/06218500-ams-lpiii.png
