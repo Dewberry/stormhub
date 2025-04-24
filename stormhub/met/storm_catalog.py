@@ -312,10 +312,10 @@ class StormCatalog(pystac.Catalog):
         """
         for collection in self.get_all_collections():
             for asset in collection.assets.values():
-                if self.spm.collection_dir(collection.id).replace('\\', '/') in asset.href:
-                    asset.href = asset.href.replace(self.spm.collection_dir(collection.id).replace('\\', '/'), ".")
-                elif self.spm.catalog_dir.replace('\\', '/') in asset.href:
-                    asset.href = asset.href.replace(self.spm.catalog_dir.replace('\\', '/'), "..")
+                if self.spm.collection_dir(collection.id).replace("\\", "/") in asset.href:
+                    asset.href = asset.href.replace(self.spm.collection_dir(collection.id).replace("\\", "/"), ".")
+                elif self.spm.catalog_dir.replace("\\", "/") in asset.href:
+                    asset.href = asset.href.replace(self.spm.catalog_dir.replace("\\", "/"), "..")
 
             for item in collection.get_all_items():
                 for asset in item.assets.values():
@@ -518,7 +518,7 @@ def storm_search(
     catalog: StormCatalog,
     storm_start_date: datetime,
     storm_duration_hours: int,
-    por_rank: int= None,
+    por_rank: int = None,
     return_item: bool = False,
     scale_max: float = 12.0,
     collection_id: str = None,
@@ -689,7 +689,7 @@ def collect_event_stats(
     num_workers: int = None,
     use_threads: bool = False,
     with_tb: bool = False,
-    use_parallel_processing: bool = True
+    use_parallel_processing: bool = True,
 ):
     """
     Collect statistics for storm events.
@@ -744,7 +744,6 @@ def collect_event_stats(
             event_dates=event_dates,
             with_tb=with_tb,
         )
-
 
 
 def create_items(
@@ -814,7 +813,6 @@ def create_items(
                     logging.error("Error processing: %s", e)
 
     return event_items
-
 
 
 def init_storm_catalog(
@@ -1062,7 +1060,9 @@ def new_collection(
 
     if dates:
         logging.info("Collecting event stats for %d dates", len(dates))
-        collect_event_stats(dates, storm_catalog, collection_id, num_workers=num_workers, with_tb=with_tb)
+        collect_event_stats(
+            dates, storm_catalog, collection_id, storm_duration, num_workers=num_workers, with_tb=with_tb
+        )
     stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     try:
         logging.info("Starting storm analysis for: %s", stats_csv)
