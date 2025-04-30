@@ -33,7 +33,10 @@ dependencies = [
     "s3fs==2024.12.0",
     "zarr==2.18.3",
     "dask==2025.1.0",
-    "numcodecs==0.13.1"
+    "numcodecs==0.13.1",
+    "scipy==1.15.2",
+    "dataretrieval==1.0.11"
+
 ]
 
 [project.optional-dependencies]
