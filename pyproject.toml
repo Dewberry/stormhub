@@ -30,10 +30,13 @@ dependencies = [
     "shapely==2.0.5",
     "xarray==2024.11.0",
     "rioxarray==0.18.1",
+    "s3fs==2024.12.0",
+    "zarr==2.18.3",
+    "dask==2025.1.0",
+    "numcodecs==0.13.1",
     "scipy==1.15.2",
-    "dataretrieval==1.0.11",
-    "pyarrow==19.0.1",
-    "fastparquet==2024.11.0"
+    "dataretrieval==1.0.11"
+
 ]
 
 [project.optional-dependencies]
