@@ -28,11 +28,13 @@ class UsgsGage(Item):
     def from_usgs(cls, gage_number: str, href: Optional[str] = None, **kwargs):
         """Creates a STAC Item representing a USGS stream gage.
 
-        Parameters:
+        Parameters
+        ----------
             gage_number (str): USGS gage number.
             href (Optional[str]): Item href for the created USGS gage item. Optional
 
-        Returns:
+        Returns
+        -------
             pystac.Item: A STAC Item representing the USGS gage.
         """
         if href is None:
@@ -106,7 +108,6 @@ class UsgsGage(Item):
 
     def start_end_dates(gage_id: str):
         """Retrieve start and end dates from oldest and newest daily value records."""
-
         startDate = "1900-01-01"
         endDate = datetime.now().strftime("%Y-%m-%d")
         dv = nwis.get_dv(gage_id, startDate, endDate)[0]
@@ -207,7 +208,8 @@ class GageCollection(pystac.Collection):
         """
         Initialize a GageCollection instance.
 
-        Parameters:
+        Parameters
+        ----------
             collection_id (str): The ID of the collection.
             items (List[pystac.Item]): List of STAC items to include in the collection.
         """
@@ -242,7 +244,8 @@ class GageCollection(pystac.Collection):
         """
         Add an item to the collection.
 
-        Parameters:
+        Parameters
+        ----------
             item (Item): The STAC item to add.
             override (bool): Whether to override an existing item with the same ID.
         """
@@ -286,15 +289,16 @@ def new_gage_catalog(catalog_id: str, local_directory: str, catalog_description:
     """
     Creates a new STAC catalog for storing USGS gage collection.
 
-    Parameters:
+    Parameters
+    ----------
         catalog_id (str): Unique id for the STAC catalog.
         local_directory (Optional[str]): Directory where the catalog will be saved.
         catalog_description (str): The description of the catalog.
 
-    Returns:
+    Returns
+    -------
         pystac.Catalog: The created STAC catalog.
     """
-
     if not local_directory:
         local_directory = os.getcwd()
 
@@ -307,12 +311,12 @@ def new_gage_collection(catalog: pystac.Catalog, gage_numbers: List[str], direct
     """
     Creates a new STAC collection for USGS gages and adds it to an existing catalog.
 
-    Parameters:
+    Parameters
+    ----------
         catalog (pystac.Catalog): The STAC catalog which the collection will be added to.
         gage_numbers (List[str]): A list of USGS gage site numbers to add to the collection.
         directory (str): The directory where the STAC collection and items will be stored.
     """
-
     base_dir = Path(directory)
     gages_dir = base_dir.joinpath("gages")
     gages_dir.mkdir(parents=True, exist_ok=True)

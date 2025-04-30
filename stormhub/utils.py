@@ -35,7 +35,6 @@ def load_config(config_file: str) -> dict:
 
 def validate_config(config: dict) -> dict:
     """Validate a config dictionary against required keys."""
-
     required_keys = {
         "watershed": ["id", "geometry_file", "description"],
         "transposition_region": ["id", "geometry_file", "description"],
@@ -54,7 +53,6 @@ def generate_date_range(
     start_date: str, end_date: str, every_n_hours: int = 6, date_format: str = "%Y-%m-%d"
 ) -> List[datetime]:
     """Generates a list of datetime objects at a given interval between start and end dates."""
-
     start = datetime.strptime(start_date, date_format)
     end = datetime.strptime(end_date, date_format)
 

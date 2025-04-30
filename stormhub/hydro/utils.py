@@ -11,11 +11,13 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
     """
     Identifies USGS gages within a given watershed and optionally filters by a minimum number of records.
 
-    Parameters:
+    Parameters
+    ----------
         watershed (str): Path to a GeoJSON containing the watershed geometry.
         min_num_records (Optional[int]): Minimum number of records required for a gage to be included. If None, all valid gages within the watershed are returned.
 
-    Returns:
+    Returns
+    -------
         List[str]: A list of USGS gage site numbers that meet the criteria.
     """
     logging.info("Finding gages within watershed")
@@ -52,7 +54,8 @@ def log_pearson_iii(peak_flows: pd.Series, standard_return_periods: list = [2, 5
         peak_flows (pd.Series): A pandas Series containing peak flow values.
         standard_return_periods (list, optional): A list of return periods for which to calculate peak flow estimates.
 
-    Returns:
+    Returns
+    -------
         dict: A dictionary where keys are return periods and values are the peak flow estimates.
     """
     log_flows = np.log10(peak_flows.values)

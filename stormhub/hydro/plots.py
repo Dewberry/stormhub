@@ -117,10 +117,10 @@ def plot_log_pearson_iii(
     """
     Plots the return period (recurrence interval) vs. peak flow using Log-Pearson Type III analysis.
 
-    Parameters:
+    Parameters
+    ----------
         peak_flows (pd.Series): List or array of peak flow values.
     """
-
     standard_return_periods = [2, 5, 10, 25, 50, 100, 500]
     lp3_estimates = log_pearson_iii(peak_flows, standard_return_periods)
     lp3_values = lp3_estimates.values()

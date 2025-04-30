@@ -120,7 +120,7 @@ class AORCItem(Item):
 
     @property
     def aorc_paths(self) -> list[str]:
-        "Construct s3 paths for AORC datasets for given start time and duration."
+        """Construct s3 paths for AORC datasets for given start time and duration."""
         if self._aorc_paths is None:
             if self.end_datetime.year == self.start_datetime.year:
                 self._aorc_paths = [f"{NOAA_AORC_S3_BASE_URL}/{self.start_datetime.year}.zarr"]
@@ -181,7 +181,7 @@ class AORCItem(Item):
 
     @property
     def transpose(self) -> Transpose:
-        "creates transpose class to use for transposition functions"
+        """Creates transpose class to use for transposition functions"""
         if self._transpose is None:
             watershed_geom_for_transpose = self.watershed_geometry
             self._transpose = Transpose(
@@ -191,7 +191,7 @@ class AORCItem(Item):
 
     @property
     def sum_aorc(self) -> xr.DataArray:
-        "sums AORC precipitation data over the duration"
+        """Sums AORC precipitation data over the duration"""
         if self._sum_aorc is None:
             self._sum_aorc = self.aorc_source_data.sum(dim="time", skipna=True, min_count=1)
         return self._sum_aorc
@@ -244,7 +244,7 @@ class AORCItem(Item):
         return_fig: bool = False,
     ) -> Figure:
         """
-        creates matplotlib figure showing:
+        Creates matplotlib figure showing:
         - location of transposed watershed with maximum precip accumulation
         - original location of watershed
         - valid area of transposition

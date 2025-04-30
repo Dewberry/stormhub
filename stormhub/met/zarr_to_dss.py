@@ -200,7 +200,6 @@ def create_gridded_data(
         lower_left_cell_x: The x-coordinate index of the lower-left cell in the grid
         lower_left_cell_y: The y-coordinate index of the lower-left cell in the grid
     """
-
     number_of_ranges: int = 0
     time_zone_raw_offset: int = 0
     is_interval: int = 0
