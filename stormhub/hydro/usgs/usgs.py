@@ -176,7 +176,7 @@ class UsgsGage(Item):
         gage_id = self.properties["site_no"]
 
         try:
-            df = nwis.get_stats(sites=gage_id)[0]
+            df = nwis.get_stats(sites=gage_id, parameterCd="00060")[0]
         except IndexError:
             logging.warning(f"Flow stats could not be found for gage_id: {gage_id}")
             return
