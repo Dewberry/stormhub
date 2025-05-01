@@ -7,6 +7,7 @@ SUPPRESS_LOGS = ["boto3", "botocore", "geopandas", "fiona", "rasterio", "pyogrio
 
 
 def initialize_logger(json_logging: bool = False, level: int = logging.INFO):
+    """Initialize the logger."""
     datefmt = "%Y-%m-%dT%H:%M:%SZ"
     if json_logging:
         for module in SUPPRESS_LOGS:

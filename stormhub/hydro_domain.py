@@ -1,3 +1,5 @@
+"""Hydrodomain Item class."""
+
 from datetime import datetime
 from typing import Any, Union
 import logging
@@ -35,7 +37,6 @@ class HydroDomain(Item):
         relevant_datetime_description: str = None,
         **kwargs: Any,
     ):
-
         self.item_id = item_id
         self.geometry = self.load_geometry(geometry)
         if hydro_domain_type not in ["watershed", "transposition_region", "valid_transposition_region"]:

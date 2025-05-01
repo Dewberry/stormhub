@@ -1,3 +1,5 @@
+"""Create a simple HTTP server for viewing local STAC objects."""
+
 import os
 import sys
 import webbrowser
@@ -6,15 +8,17 @@ from socketserver import ThreadingMixIn
 
 
 class CORSRequestHandler(SimpleHTTPRequestHandler):
-    """Handles CORS requests"""
+    """Handle CORS requests."""
 
     def end_headers(self):
+        """Add CORS headers to the response."""
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "x-api-key, Content-Type")
         SimpleHTTPRequestHandler.end_headers(self)
 
     def list_directory(self, path):
+        """List the contents of a directory."""
         try:
             list = os.listdir(path)
         except OSError:
@@ -70,6 +74,7 @@ class CORSRequestHandler(SimpleHTTPRequestHandler):
         return None
 
     def do_POST(self):
+        """Handle POST requests."""
         if self.path == "/shutdown":
             self.send_response(200)
             self.send_header("Content-type", "text/html")
@@ -90,6 +95,7 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main(mkdir: bool = True):
+    """Start a simple HTTP server."""
     if len(sys.argv) < 2:
         print("Usage: python server.py <directory_to_serve> [host] [port]")
         sys.exit(1)

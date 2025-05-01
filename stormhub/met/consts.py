@@ -1,3 +1,5 @@
+"""Constants."""
+
 NOAA_AORC_S3_BASE_URL = "s3://noaa-nws-aorc-v1-1-1km"
 
 AORC_PRECIP_VARIABLE = "APCP_surface"

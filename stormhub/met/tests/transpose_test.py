@@ -1,3 +1,5 @@
+"""Testing functions."""
+
 import unittest
 from math import floor
 
@@ -79,8 +81,9 @@ def create_test_data_array(transposition_domain_polygon: Polygon, res: float) ->
     min_x, min_y, max_x, max_y = transposition_domain_polygon.bounds
     nx = floor((max_x - min_x) / res)
     ny = floor((max_y - min_y) / res)
-    longitudes, latitudes = np.linspace(min_x + res / 2, max_x - res / 2, nx), np.linspace(
-        min_y + res / 2, max_y - res / 2, ny
+    longitudes, latitudes = (
+        np.linspace(min_x + res / 2, max_x - res / 2, nx),
+        np.linspace(min_y + res / 2, max_y - res / 2, ny),
     )
 
     # Create sample data

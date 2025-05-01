@@ -1,3 +1,5 @@
+"""AORC Item class."""
+
 import datetime
 import json
 import logging
@@ -58,7 +60,6 @@ class AORCItem(Item):
         transposition_domain_name: str = None,
         **kwargs: Any,
     ):
-
         self.item_id = item_id
         self.duration_hours = f"{duration_hours}hrs"
         self.duration = duration_hours
@@ -115,12 +116,13 @@ class AORCItem(Item):
         self._stats: dict | None = None
 
     def _register_extensions(self) -> None:
+        """Register item extensions."""
         ProjectionExtension.add_to(self)
         StorageExtension.add_to(self)
 
     @property
     def aorc_paths(self) -> list[str]:
-        "Construct s3 paths for AORC datasets for given start time and duration."
+        """Construct s3 paths for AORC datasets for given start time and duration."""
         if self._aorc_paths is None:
             if self.end_datetime.year == self.start_datetime.year:
                 self._aorc_paths = [f"{NOAA_AORC_S3_BASE_URL}/{self.start_datetime.year}.zarr"]
@@ -136,7 +138,8 @@ class AORCItem(Item):
 
     @property
     def aorc_source_data(self) -> xr.Dataset:
-        """
+        """Extract AORC source data.
+
         - reads AORC data into memory as multifile dataset using s3 paths
         - doesn't read the entire ZARR files, instead just reads slice of data corresponding to transposition domain geometry and limited to start and end time
         - adds ZARR files to assets if they don't exist already
@@ -181,7 +184,7 @@ class AORCItem(Item):
 
     @property
     def transpose(self) -> Transpose:
-        "creates transpose class to use for transposition functions"
+        """Create transpose class to use for transposition functions."""
         if self._transpose is None:
             watershed_geom_for_transpose = self.watershed_geometry
             self._transpose = Transpose(
@@ -191,13 +194,14 @@ class AORCItem(Item):
 
     @property
     def sum_aorc(self) -> xr.DataArray:
-        "sums AORC precipitation data over the duration"
+        """Sum AORC precipitation data over the duration."""
         if self._sum_aorc is None:
             self._sum_aorc = self.aorc_source_data.sum(dim="time", skipna=True, min_count=1)
         return self._sum_aorc
 
     @staticmethod
     def _create_stats(array: np.ndarray) -> dict:
+        """Create stats from array."""
         return {
             "min": round(float(np.nanmin(array)) * MM_TO_INCH_CONVERSION_FACTOR, 2),
             "mean": round(float(np.nanmean(array)) * MM_TO_INCH_CONVERSION_FACTOR, 2),
@@ -207,7 +211,8 @@ class AORCItem(Item):
         }
 
     def max_transpose(self, add_properties: bool = True) -> tuple[Polygon, Affine, dict]:
-        """
+        """Get max transpose.
+
         - convert max array to polygon
         - add stats object to item properties
         - record transpose centroid as item geometry
@@ -243,8 +248,9 @@ class AORCItem(Item):
         write: bool = True,
         return_fig: bool = False,
     ) -> Figure:
-        """
-        creates matplotlib figure showing:
+        """Create AORC STAC item thumbnail.
+
+        Creates matplotlib figure showing:
         - location of transposed watershed with maximum precip accumulation
         - original location of watershed
         - valid area of transposition
@@ -299,10 +305,7 @@ class AORCItem(Item):
 
 
 def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duration: int = 72) -> Polygon:
-    """
-    Search a sample zarr dataset to identify valid spaces for transposition.
-     datetime.datetime(1980, 5, 1) is used as a start time for the search.
-    """
+    """Search a sample zarr dataset to identify valid spaces for transposition. datetime.datetime(1980, 5, 1) is used as a start time for the search."""
     s3 = s3fs.S3FileSystem(anon=True)
     start_time = datetime.datetime(1980, 5, 1)
     sample_data = s3fs.S3Map(root=f"{NOAA_AORC_S3_BASE_URL}/{start_time.year}.zarr", s3=s3)

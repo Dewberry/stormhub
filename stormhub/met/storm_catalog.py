@@ -1,3 +1,5 @@
+"""Module for processing and creating stormhub STAC objects."""
+
 import json
 import logging
 import os
@@ -24,6 +26,8 @@ from stormhub.utils import (
 
 
 class StormCollection(pystac.Collection):
+    """Storm Collection class."""
+
     def __init__(self, collection_id: str, items: List[pystac.Item]):
         """
         Initialize a StormCollection instance.
@@ -68,7 +72,8 @@ class StormCollection(pystac.Collection):
         Args:
             collection (pystac.Collection): The existing STAC collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: A new StormCollection instance.
         """
         items = list(collection.get_all_items())
@@ -110,7 +115,6 @@ class StormCollection(pystac.Collection):
         """
         values = []
         for item in self.get_all_items():
-
             if property_name in item.properties:
                 values.append(item.properties[property_name].get(statistic))
 
@@ -233,13 +237,13 @@ class StormCatalog(pystac.Catalog):
 
     @classmethod
     def from_file(cls, file_path: str) -> "StormCatalog":
-        """
-        Create a StormCatalog from a file.
+        """Create a StormCatalog from a file.
 
         Args:
             file_path (str): Path to the catalog file.
 
-        Returns:
+        Returns
+        -------
             StormCatalog: A new StormCatalog instance.
         """
         catalog = pystac.Catalog.from_file(file_path)
@@ -267,7 +271,8 @@ class StormCatalog(pystac.Catalog):
         """
         Get the valid transposition region from the catalog links.
 
-        Returns:
+        Returns
+        -------
             Item: The valid transposition region item.
         """
         # if self._valid_transposition_region is None:
@@ -291,7 +296,8 @@ class StormCatalog(pystac.Catalog):
         """
         Get the transposition region from the catalog links.
 
-        Returns:
+        Returns
+        -------
             Item: The transposition region item.
         """
         return get_item_from_catalog_link(self.links, "Transposition Region", spm=self.spm)
@@ -301,15 +307,14 @@ class StormCatalog(pystac.Catalog):
         """
         Get the watershed from the catalog links.
 
-        Returns:
+        Returns
+        -------
             Item: The watershed item.
         """
         return get_item_from_catalog_link(self.links, "Watershed", spm=self.spm)
 
     def sanitize_catalog_assets(self):
-        """
-        Forces the asset paths in the catalog relative to root.
-        """
+        """Force the asset paths in the catalog relative to root."""
         for collection in self.get_all_collections():
             for asset in collection.assets.values():
                 if self.spm.collection_dir(collection.id).replace("\\", "/") in asset.href:
@@ -334,7 +339,8 @@ class StormCatalog(pystac.Catalog):
         Args:
             hydro_domain (Union[HydroDomain, Item]): The hydro domain to add.
 
-        Returns:
+        Returns
+        -------
             str: The ID of the added hydro domain.
         """
         if not isinstance(hydro_domain, (HydroDomain, Item)):
@@ -365,7 +371,8 @@ class StormCatalog(pystac.Catalog):
         Args:
             collection_id (str): The ID of the collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: The storm collection.
         """
         collection = self.get_child(collection_id)
@@ -374,9 +381,7 @@ class StormCatalog(pystac.Catalog):
         return StormCollection.from_collection(collection)
 
     def save_catalog(self):
-        """
-        Save the catalog and its collections.
-        """
+        """Save the catalog and its collections."""
         for collection in self.get_all_collections():
             collection.save_object(dest_href=self.spm.collection_file(collection.id), include_self_link=False)
         self.sanitize_catalog_assets()
@@ -416,7 +421,8 @@ class StormCatalog(pystac.Catalog):
             collection_id (str): The ID of the new collection.
             items (List[Item]): List of items to include in the collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: The new storm collection.
         """
         collection = StormCollection(collection_id, items)
@@ -472,10 +478,10 @@ class StormCatalog(pystac.Catalog):
             collection_id (str): The ID of the new collection.
             items (List[Item]): List of items to include in the collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: The new storm collection.
         """
-
         collection = self.get_storm_collection(collection_id)
 
         top_events.loc[:, "storm_id"] = top_events["storm_date"].apply(lambda x: f"{x.strftime('%Y-%m-%dT%H')}")
@@ -534,7 +540,8 @@ def storm_search(
         scale_max (float): The maximum scale for the thumbnail.
         collection_id (str): The ID of the collection.
 
-    Returns:
+    Returns
+    -------
         Union[dict, AORCItem]: The storm search results or the storm item.
     """
     if not collection_id:
@@ -637,6 +644,7 @@ def multi_processor(
 ):
     """
     Run function in parallel using multiple processors or threads.
+
     TODO: Consider using this for `storm_search` in creating items as well as collecting event stats.
 
     Args:
@@ -704,7 +712,6 @@ def collect_event_stats(
         with_tb (bool): Whether to include traceback in error logs.
         use_parallel_processing (bool): Whether to process storm stats using parallel processing.
     """
-
     if not collection_id:
         collection_id = catalog.spm.storm_collection_id(storm_duration)
 
@@ -765,7 +772,8 @@ def create_items(
         num_workers (int, optional): Number of workers to use.
         with_tb (bool): Whether to include traceback in error logs.
 
-    Returns:
+    Returns
+    -------
         list: List of created event items.
     """
     event_items = []
@@ -827,7 +835,8 @@ def init_storm_catalog(
         local_catalog_dir (str): Local directory for the catalog.
         create_valid_transposition_region (bool): Whether to create a valid transposition region.
 
-    Returns:
+    Returns
+    -------
         pystac.Catalog: The initialized catalog.
     """
     watershed_config = config.get("watershed")
@@ -884,7 +893,8 @@ def get_item_from_catalog_link(links: list, link_title: str, spm: StacPathManage
         link_title (str): The title of the link.
         spm (StacPathManager): The STAC path manager.
 
-    Returns:
+    Returns
+    -------
         Item: The item from the catalog link.
     """
     matched_links = [link for link in links if link.title == link_title]
@@ -911,7 +921,8 @@ def storm_search_results_to_csv_line(storm_search_results: dict) -> str:
     Args:
         storm_search_results (dict): The storm search results.
 
-    Returns:
+    Returns
+    -------
         str: The CSV line.
     """
     event_stats = storm_search_results["aorc:statistics"]
@@ -931,7 +942,8 @@ def find_missing_storm_dates(file_path: str, start_date: str, stop_date: str, ev
         stop_date (str): The stop date.
         every_n_hours (int): The interval in hours.
 
-    Returns:
+    Returns
+    -------
         list: List of missing storm dates.
     """
     df = pd.read_csv(file_path)
@@ -966,10 +978,10 @@ def new_catalog(
         local_directory (str, optional): Local directory for the catalog.
         catalog_description (str): Description of the catalog.
 
-    Returns:
+    Returns
+    -------
         StormCatalog: The new storm catalog.
     """
-
     # Step 1: Load config
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)

@@ -1,3 +1,5 @@
+"""Class to handle transpoition functionality."""
+
 from typing import Any, Callable
 
 import numpy as np
@@ -15,7 +17,8 @@ class Transpose:
     """
     A class to handle the transposition of a watershed mask over a data array.
 
-    Attributes:
+    Attributes
+    ----------
         data_array (xr.DataArray): The data array to be transposed.
         watershed (Polygon): The watershed polygon.
         x_var (str): The x variable name in the data array.
@@ -75,7 +78,8 @@ class Transpose:
         """
         Get the x coordinates of the data array.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: The x coordinates of the data array.
         """
         if not isinstance(self._data_array_x_coords, np.ndarray):
@@ -87,7 +91,8 @@ class Transpose:
         """
         Get the y coordinates of the data array.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: The y coordinates of the data array.
         """
         if not isinstance(self._data_array_y_coords, np.ndarray):
@@ -99,7 +104,8 @@ class Transpose:
         """
         Get the data array as a numpy array.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: The data array as a numpy array.
         """
         if not isinstance(self._np_data_array, np.ndarray):
@@ -111,7 +117,8 @@ class Transpose:
         """
         Get the window of the watershed in the data array.
 
-        Returns:
+        Returns
+        -------
             Window: The window of the watershed in the data array.
         """
         if self._watershed_window is None:
@@ -123,7 +130,8 @@ class Transpose:
         """
         Get the watershed mask as a 2D boolean numpy array.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: The watershed mask as a 2D boolean numpy array.
         """
         if not isinstance(self._watershed_mask, np.ndarray):
@@ -135,7 +143,8 @@ class Transpose:
         """
         Get the clipped watershed mask.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: The clipped watershed mask.
         """
         if not isinstance(self._watershed_mask_clipped, np.ndarray):
@@ -151,7 +160,8 @@ class Transpose:
         within the bounds of the data array. It iterates over possible shifts and checks
         if the shifted mask is still within the valid data region.
 
-        Returns:
+        Returns
+        -------
             list[tuple[int, int]]: A list of tuples representing the valid (x, y) shifts.
         """
         if self._valid_shifts is None:
@@ -192,7 +202,8 @@ class Transpose:
         the list of shift values, applies the shifts to the watershed mask, and performs
         a logical OR with the valid mask and the rolled watershed mask.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: The valid spaces mask as a boolean numpy array.
         """
         if not isinstance(self._valid_spaces, np.ndarray):
@@ -210,7 +221,8 @@ class Transpose:
         Args:
             arr (np.ndarray): The boolean array to convert.
 
-        Returns:
+        Returns
+        -------
             Polygon: The resulting polygon.
         """
         shapely_shapes = [
@@ -228,7 +240,8 @@ class Transpose:
         """
         Convert the valid spaces boolean array to a polygon.
 
-        Returns:
+        Returns
+        -------
             Polygon: The valid spaces polygon.
         """
         if self._valid_spaces_polygon is None:
@@ -247,7 +260,8 @@ class Transpose:
         Args:
             func (Callable[[np.ndarray], Any] | None): A callable to apply to the data array.
 
-        Returns:
+        Returns
+        -------
             tuple[Polygon, Affine, Any | None]: The resulting polygon, affine transformation, and results.
         """
         original_window_row_slice, original_window_col_slice = self.watershed_window.toslices()
