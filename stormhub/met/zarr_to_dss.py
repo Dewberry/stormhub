@@ -1,3 +1,5 @@
+"""Create dss from aorc zarr data."""
+
 from datetime import datetime, timedelta
 from enum import Enum
 import math
@@ -12,16 +14,20 @@ import s3fs
 import xarray as xr
 from stormhub.met.consts import NOAA_AORC_S3_BASE_URL, KM_TO_M_CONVERSION_FACTOR, SHG_WKT
 
+
 class MeasurementType(Enum):
-    PERCUM="per_cum"
-    INSTVAL="inst_val"
+    """Type of measurements."""
+
+    PERCUM = "per_cum"
+    INSTVAL = "inst_val"
+
 
 class DSSPath:
-    """Helper class for defining DSS paths"""
+    """Class for defining DSS paths."""
 
     def __init__(self, a_part: str, b_part: str, c_part: str, d_part: str, e_part: str, f_part: str):
         """
-        Parameter descriptions from: https://www.hec.usace.army.mil/confluence/dssdocs/dssvueum/introduction/general-concepts-for-hec-dss
+        Parameter descriptions from: https://www.hec.usace.army.mil/confluence/dssdocs/dssvueum/introduction/general-concepts-for-hec-dss.
 
         Args:
             a_part (str): Refers to the grid reference system. At present, GageInterp supports only the HRAP and SHG grid systems
@@ -39,10 +45,12 @@ class DSSPath:
         self.f_part = f_part
 
     def __str__(self) -> str:
+        """Return the DSS path string."""
         return f"/{self.a_part}/{self.b_part}/{self.c_part}/{self.d_part}/{self.e_part}/{self.f_part}/"
 
+
 class NOAADataVariable(Enum):
-    """Class of potential NOAA data variables to extract zarr data for"""
+    """Class of potential NOAA data variables to extract zarr data for."""
 
     APCP = "APCP_surface"
     DLWRF = "DLWRF_surface"
@@ -55,6 +63,7 @@ class NOAADataVariable(Enum):
 
     @property
     def dss_variable_title(self) -> str:
+        """Return variable title."""
         if self == NOAADataVariable.APCP:
             return "PRECIPITATION"
         elif self == NOAADataVariable.TMP:
@@ -64,6 +73,7 @@ class NOAADataVariable(Enum):
 
     @property
     def measurement_type(self) -> MeasurementType:
+        """Return measurement type."""
         if self == NOAADataVariable.APCP:
             return MeasurementType.PERCUM
         else:
@@ -71,6 +81,7 @@ class NOAADataVariable(Enum):
 
     @property
     def measurement_unit(self) -> str:
+        """Return measurement units."""
         if self == NOAADataVariable.APCP:
             return "MM"
         elif self == NOAADataVariable.TMP:
@@ -78,18 +89,20 @@ class NOAADataVariable(Enum):
         else:
             raise NotImplementedError(f"Unit unknown for data variable {self.__repr__}")
 
+
 def get_aorc_paths(storm_start: datetime, storm_end: datetime) -> list[str]:
-    """Construct s3 paths for AORC dataset given storm start and end time"""
+    """Construct s3 paths for AORC dataset given storm start and end time."""
     aorc_paths = []
     if storm_start.year == storm_end.year:
         aorc_paths.append(f"{NOAA_AORC_S3_BASE_URL}/{storm_start.year}.zarr")
     else:
-        for year in range(storm_start.year, storm_end.year + 1): # plus one since end range is exclusive
+        for year in range(storm_start.year, storm_end.year + 1):  # plus one since end range is exclusive
             aorc_paths.append(f"{NOAA_AORC_S3_BASE_URL}/{year}.zarr")
     return aorc_paths
 
+
 def date_range_dss_path_format(date: datetime, measurement_type: MeasurementType) -> Tuple[str, str]:
-    """Helper function to format start and end times for DSS path based on a date and measurement type"""
+    """Format start and end times for DSS path based on a date and measurement type."""
     if measurement_type == MeasurementType.PERCUM:
         end_dt = date
         start_dt = end_dt - timedelta(hours=1)
@@ -108,12 +121,17 @@ def date_range_dss_path_format(date: datetime, measurement_type: MeasurementType
             start_dt_str = start_dt.strftime("%d%b%Y:%H%M").upper()
         end_dt_str = ""
     else:
-        raise NotImplementedError(f"Start and end time definition from a single datetime is not defined for {measurement_type}.")
+        raise NotImplementedError(
+            f"Start and end time definition from a single datetime is not defined for {measurement_type}."
+        )
 
     return start_dt_str, end_dt_str
 
-def get_lower_left_xy(data: xr.Dataset, resolution: int, x_coord_of_grid_cell_zero=0, y_coord_of_grid_cell_zero=0) -> Tuple[int, int]:
-    """Get lower left xy from gridded data"""
+
+def get_lower_left_xy(
+    data: xr.Dataset, resolution: int, x_coord_of_grid_cell_zero=0, y_coord_of_grid_cell_zero=0
+) -> Tuple[int, int]:
+    """Get lower left xy from gridded data."""
     y_coords = data.y.to_numpy()
     x_coords = data.x.to_numpy()
 
@@ -132,8 +150,9 @@ def get_lower_left_xy(data: xr.Dataset, resolution: int, x_coord_of_grid_cell_ze
 
     return (lower_left_x, lower_left_y)
 
+
 def convert_temperature_dataset(data: xr.Dataset) -> xr.Dataset:
-    """Pulled from stormcloud, converts temperature data that's in Kelvin to the desired output_unit"""
+    """Convert temperature in Kelvin to the desired output_unit."""
     output_unit = NOAADataVariable.TMP.measurement_unit
     data_unit = data.units
     if data_unit != "K":
@@ -156,6 +175,7 @@ def convert_temperature_dataset(data: xr.Dataset) -> xr.Dataset:
             )
     return data
 
+
 def create_gridded_data(
     path: DSSPath,
     data: np.ndarray,
@@ -166,28 +186,20 @@ def create_gridded_data(
         "hrap_grid",
         "albers_with_time_ref",
         "albers",
-        "specified_grid_with_time_ref", 
-        "specified_grid"
+        "specified_grid_with_time_ref",
+        "specified_grid",
     ],
-    data_type: Literal[
-        "per_aver",
-        "per_cum",
-        "inst_val",
-        "inst_cum",
-        "freq",
-        "invalid"
-    ],
+    data_type: Literal["per_aver", "per_cum", "inst_val", "inst_cum", "freq", "invalid"],
     cell_size: float,
     data_units: str,
     srs_definition: str,
     lower_left_cell_x: int,
     lower_left_cell_y: int,
     x_coord_of_grid_cell_zero: float = 0,
-    y_coord_of_grid_cell_zero: float = 0
+    y_coord_of_grid_cell_zero: float = 0,
 ) -> gridded_data.GriddedData:
     """
-    Helper function for creating a gridded_data.GriddedData object from the HecDss library.
-    Specifies default values for some parameters of GriddedData
+    Create a gridded_data.GriddedData object from the HecDss library. Specifies default values for some parameters of GriddedData.
 
     Args:
         path: Path following the /part_a/part_b/part_c/part_d/part_e/part_f/ format
@@ -218,16 +230,9 @@ def create_gridded_data(
         "albers_with_time_ref": 420,
         "albers": 421,
         "specified_grid_with_time_ref": 430,
-        "specified_grid": 431
+        "specified_grid": 431,
     }
-    data_type_map = {
-        "per_aver": 0,
-        "per_cum": 1,
-        "inst_val": 2,
-        "inst_cum": 3,
-        "freq": 4,
-        "invalid": 5
-    }
+    data_type_map = {"per_aver": 0, "per_cum": 1, "inst_val": 2, "inst_cum": 3, "freq": 4, "invalid": 5}
 
     gd = gridded_data.GriddedData.create(
         path=str(path),
@@ -236,7 +241,7 @@ def create_gridded_data(
         lowerLeftCellX=lower_left_cell_x,
         lowerLeftCellY=lower_left_cell_y,
         numberOfRanges=number_of_ranges,
-        srsDefinitionType= srs_definition_type,
+        srsDefinitionType=srs_definition_type,
         timeZoneRawOffset=time_zone_raw_offset,
         isInterval=is_interval,
         isTimeStamped=is_time_stamped,
@@ -249,23 +254,18 @@ def create_gridded_data(
         xCoordOfGridCellZero=x_coord_of_grid_cell_zero,
         yCoordOfGridCellZero=y_coord_of_grid_cell_zero,
         nullValue=null_value,
-        data=data
+        data=data,
     )
 
     return gd
 
+
 def get_s3_zarr_data(
-    s3_paths: List[str],
-    aoi_gdf: GeoDataFrame,
-    start_dt: datetime,
-    end_dt: datetime,
-    variables_of_interest: List[str]
+    s3_paths: List[str], aoi_gdf: GeoDataFrame, start_dt: datetime, end_dt: datetime, variables_of_interest: List[str]
 ) -> xr.Dataset:
     """
-    Reads a multifile dataset from the specified S3 paths, filters it based 
-    on the area of interest (AOI) and the time range, extracts only the variables of interest 
-    and returns an xarray Dataset.
-    
+    Read a multifile dataset from the specified S3 paths, filters it based on the area of interest (AOI) and the time range, extracts only the variables of interest and returns an xarray Dataset.
+
     Args:
         s3_paths: A list of S3 paths where the Zarr data is stored.
         aoi_gdf: A GeoDataFrame containing the area of interest. Only the first entry is used, and should be a polygon or multipolygon geometry.
@@ -277,27 +277,26 @@ def get_s3_zarr_data(
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
     ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
 
-    #subset data to only the variables
+    # subset data to only the variables
     if variables_of_interest:
         ds = ds[variables_of_interest]
 
-    #reproject aoi to crs of dataset
+    # reproject aoi to crs of dataset
     aoi_gdf = aoi_gdf.to_crs(ds.rio.crs)
     aoi_shape = aoi_gdf.geometry.iloc[0]
 
-    #get a rough subsection of the dataset based on time and aoi in order to reduce it's size
-    #this results in a speed improvement for rio.clip if the xarray.Dataset is sufficiently sized
+    # get a rough subsection of the dataset based on time and aoi in order to reduce it's size
+    # this results in a speed improvement for rio.clip if the xarray.Dataset is sufficiently sized
     bounds = aoi_shape.bounds
     ds = ds.sel(
-        time=slice(start_dt, end_dt),
-        longitude=slice(bounds[0], bounds[2]),
-        latitude=slice(bounds[1], bounds[3])
+        time=slice(start_dt, end_dt), longitude=slice(bounds[0], bounds[2]), latitude=slice(bounds[1], bounds[3])
     )
 
-    #clip ds to exact shape
+    # clip ds to exact shape
     ds = ds.rio.clip([aoi_shape], drop=True, all_touched=True)
 
     return ds
+
 
 def write_to_dss(
     output_dss_path: str,
@@ -307,10 +306,10 @@ def write_to_dss(
     param_measurement_type: MeasurementType,
     param_measurement_unit: str,
     output_resolution_km: int,
-    data_version: str
+    data_version: str,
 ):
     """
-    Writes geospatial data to a DSS file while transforming the data to fit DSS conventions
+    Write geospatial data to a DSS file while transforming the data to fit DSS conventions.
 
     Args:
         output_dss_path: Path to the output DSS file
@@ -339,7 +338,7 @@ def write_to_dss(
             param_name.upper(),
             start_dt_str,
             end_dt_str,
-            data_version.upper()
+            data_version.upper(),
         )
 
         gd = create_gridded_data(
@@ -351,12 +350,13 @@ def write_to_dss(
             data_units=param_measurement_unit,
             srs_definition=SHG_WKT,
             lower_left_cell_x=lower_x,
-            lower_left_cell_y=lower_y
+            lower_left_cell_y=lower_y,
         )
 
         dss.put(gd)
 
     dss.close()
+
 
 def noaa_zarr_to_dss(
     output_dss_path: str,
@@ -364,20 +364,20 @@ def noaa_zarr_to_dss(
     aoi_name: str,
     storm_start: datetime,
     storm_duration: int,
-    variables_of_interest: List[NOAADataVariable]
+    variables_of_interest: List[NOAADataVariable],
 ):
-    """Given a geometry and datetime information about a storm, writes variables of interest from NOAA dataset to DSS"""
-    #arrange parameters
+    """Given a geometry and datetime information about a storm, writes variables of interest from NOAA dataset to DSS."""
+    # arrange parameters
     aoi_gdf = gpd.read_file(aoi_geometry_gpkg_path)
     storm_end = storm_start + timedelta(hours=storm_duration)
-    storm_start += timedelta(hours=1) #do this to make start time exclusive
+    storm_start += timedelta(hours=1)  # do this to make start time exclusive
     aorc_paths = get_aorc_paths(storm_start, storm_end)
     voi_keys = [voi.value for voi in variables_of_interest]
 
-    #get aorc data
+    # get aorc data
     aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, storm_start, storm_end, voi_keys)
 
-    #write to dss
+    # write to dss
     for data_variable in variables_of_interest:
         data = aorc_data[data_variable.value]
         if data_variable == NOAADataVariable.TMP:
@@ -390,5 +390,5 @@ def noaa_zarr_to_dss(
             param_measurement_type=data_variable.measurement_type,
             param_measurement_unit=data_variable.measurement_unit,
             output_resolution_km=1,
-            data_version="AORC")
-            
+            data_version="AORC",
+        )

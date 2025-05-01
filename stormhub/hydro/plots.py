@@ -1,3 +1,5 @@
+"""Plot functions for USGS gage data."""
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -6,7 +8,7 @@ from stormhub.hydro.utils import log_pearson_iii
 
 
 def plot_ams_seasonal(df, site: str, save_to: str):
-    """Ranks and Plots annual maxima series statistics, colored by season."""
+    """Rank and Plot annual maxima series statistics, colored by season."""
     # Map months to seasons
     df["season"] = ((df.index.month % 12 + 3) // 3).map({1: "Winter", 2: "Spring", 3: "Summer", 4: "Fall"})
 
@@ -39,7 +41,7 @@ def plot_ams_seasonal(df, site: str, save_to: str):
 
 
 def plot_ams(df: pd.DataFrame, site: str, save_to: str):
-    """Plots annual maxima series statistics."""
+    """Plot annual maxima series statistics."""
     fig, ax = plt.subplots()
     ax.scatter(df.index, df["peak_va"], color="blue", edgecolor="black", linewidth=0.5, s=25)
 
@@ -52,7 +54,7 @@ def plot_ams(df: pd.DataFrame, site: str, save_to: str):
 
 
 def plot_nwis_statistics(stats_df: pd.DataFrame, site: str, save_to: str):
-    """Plots streamflow statistics from NWIS."""
+    """Plot streamflow statistics from NWIS."""
     # Ensure data is sorted by day of the year
     stats_df = stats_df.sort_values(by=["month_nu", "day_nu"])
 
@@ -115,7 +117,7 @@ def plot_log_pearson_iii(
     save_to: str,
 ):
     """
-    Plots the return period (recurrence interval) vs. peak flow using Log-Pearson Type III analysis.
+    Plot the return period (recurrence interval) vs. peak flow using Log-Pearson Type III analysis.
 
     Parameters
     ----------
@@ -144,7 +146,7 @@ def plot_log_pearson_iii(
     # Labels and title
     ax.set_xlabel("Return Period (years)")
     ax.set_ylabel("Peak Flow (cfs)")
-    ax.set_title(f"{gage_id } | Log-Pearson Type III Estimates \n(No regional skew))")
+    ax.set_title(f"{gage_id} | Log-Pearson Type III Estimates \n(No regional skew))")
     ax.grid(True, which="both", linestyle="--", alpha=0.6)
     ax.legend()
 

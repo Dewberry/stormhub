@@ -1,3 +1,5 @@
+"""Module for processing and creating stormhub STAC objects."""
+
 import json
 import logging
 import os
@@ -24,6 +26,8 @@ from stormhub.utils import (
 
 
 class StormCollection(pystac.Collection):
+    """Storm Collection class."""
+
     def __init__(self, collection_id: str, items: List[pystac.Item]):
         """
         Initialize a StormCollection instance.
@@ -111,7 +115,6 @@ class StormCollection(pystac.Collection):
         """
         values = []
         for item in self.get_all_items():
-
             if property_name in item.properties:
                 values.append(item.properties[property_name].get(statistic))
 
@@ -234,8 +237,7 @@ class StormCatalog(pystac.Catalog):
 
     @classmethod
     def from_file(cls, file_path: str) -> "StormCatalog":
-        """
-        Create a StormCatalog from a file.
+        """Create a StormCatalog from a file.
 
         Args:
             file_path (str): Path to the catalog file.
@@ -312,9 +314,7 @@ class StormCatalog(pystac.Catalog):
         return get_item_from_catalog_link(self.links, "Watershed", spm=self.spm)
 
     def sanitize_catalog_assets(self):
-        """
-        Forces the asset paths in the catalog relative to root.
-        """
+        """Force the asset paths in the catalog relative to root."""
         for collection in self.get_all_collections():
             for asset in collection.assets.values():
                 if self.spm.collection_dir(collection.id).replace("\\", "/") in asset.href:
@@ -381,9 +381,7 @@ class StormCatalog(pystac.Catalog):
         return StormCollection.from_collection(collection)
 
     def save_catalog(self):
-        """
-        Save the catalog and its collections.
-        """
+        """Save the catalog and its collections."""
         for collection in self.get_all_collections():
             collection.save_object(dest_href=self.spm.collection_file(collection.id), include_self_link=False)
         self.sanitize_catalog_assets()
@@ -646,6 +644,7 @@ def multi_processor(
 ):
     """
     Run function in parallel using multiple processors or threads.
+
     TODO: Consider using this for `storm_search` in creating items as well as collecting event stats.
 
     Args:

@@ -1,3 +1,5 @@
+"""Module for createing USGS STAC objects."""
+
 import logging
 import os
 from datetime import datetime
@@ -26,7 +28,7 @@ class UsgsGage(Item):
 
     @classmethod
     def from_usgs(cls, gage_number: str, href: Optional[str] = None, **kwargs):
-        """Creates a STAC Item representing a USGS stream gage.
+        """Create a STAC Item representing a USGS stream gage.
 
         Parameters
         ----------
@@ -84,6 +86,7 @@ class UsgsGage(Item):
         return usgs_gage
 
     def __repr__(self):
+        """Return string representation of the UsgsGage object."""
         return f"<UsgsGage {self.id} {self.properties['station_nm']}>"
 
     @staticmethod
@@ -199,11 +202,13 @@ class UsgsGage(Item):
 
 
 def from_stac(href: str) -> UsgsGage:
-    """Create a UsgsGage from a STAC Item"""
+    """Create a UsgsGage from a STAC Item."""
     return UsgsGage.from_file(href)
 
 
 class GageCollection(pystac.Collection):
+    """USGS gage collection."""
+
     def __init__(self, collection_id: str, items: List[pystac.Item], href):
         """
         Initialize a GageCollection instance.
@@ -267,7 +272,7 @@ class GageCollection(pystac.Collection):
             logging.info(f"Added item with ID '{item.id}' to the collection.")
 
     def items_to_geojson(self, items: List[pystac.Item], geojson_dir: str):
-        """Adds a list of STAC items to a geojson and saves it as a collection asset."""
+        """Add a list of STAC items to a geojson and saves it as a collection asset."""
         records = []
         for item in items:
             geom = shape(item.geometry)
@@ -287,7 +292,7 @@ class GageCollection(pystac.Collection):
 
 def new_gage_catalog(catalog_id: str, local_directory: str, catalog_description: str) -> pystac.Catalog:
     """
-    Creates a new STAC catalog for storing USGS gage collection.
+    Create a new STAC catalog for storing USGS gage collection.
 
     Parameters
     ----------
@@ -309,7 +314,7 @@ def new_gage_catalog(catalog_id: str, local_directory: str, catalog_description:
 
 def new_gage_collection(catalog: pystac.Catalog, gage_numbers: List[str], directory: str) -> None:
     """
-    Creates a new STAC collection for USGS gages and adds it to an existing catalog.
+    Create a new STAC collection for USGS gages and adds it to an existing catalog.
 
     Parameters
     ----------

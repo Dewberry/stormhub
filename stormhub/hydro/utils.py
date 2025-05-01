@@ -1,3 +1,5 @@
+"""USGS gage utility functions."""
+
 from dataretrieval import nwis, NoSitesError
 import geopandas as gpd
 from typing import Optional, List
@@ -9,7 +11,7 @@ import pandas as pd
 
 def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = None) -> List[str]:
     """
-    Identifies USGS gages within a given watershed and optionally filters by a minimum number of records.
+    Identify USGS gages within a given watershed and optionally filters by a minimum number of records.
 
     Parameters
     ----------
@@ -48,7 +50,7 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
 
 
 def log_pearson_iii(peak_flows: pd.Series, standard_return_periods: list = [2, 5, 10, 25, 50, 100, 500]):
-    """Calculates peak flow estimates for specified return periods using the Log-Pearson Type III distribution.
+    """Calculate peak flow estimates for specified return periods using the Log-Pearson Type III distribution.
 
     Args:
         peak_flows (pd.Series): A pandas Series containing peak flow values.
