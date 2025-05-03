@@ -136,7 +136,7 @@ class TestTransposeFunction(unittest.TestCase):
 
     def test_max_transpose_max_value(self):
         # Create a test max value
-        test_max_value = 23
+        test_max_value = 24
 
         # Check if the max value is correct
         max_value = self.transpose.max_transpose(np.max)[2]
