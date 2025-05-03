@@ -45,7 +45,10 @@ StormHub facilitates FAIR data principles by enabling:
 
 ## Installation
 ```bash
-# Clone the repository
+# Using pip
+pip install stormhub
+
+# From source: Clone the repository
 git clone https://github.com/dewberry/stormhub.git
 
 # Navigate to the project directory
