@@ -1,3 +1,5 @@
+"""Storm analysis utilities."""
+
 import datetime
 import logging
 import os
@@ -9,9 +11,7 @@ from stormhub.utils import StacPathManager
 
 
 class StormAnalyzer:
-    """
-    Analyzes storm events.
-    """
+    """Analyze storm events."""
 
     def __init__(self, csv_path: str, threshold: float, duration_hours: int):
         self.csv_path = csv_path
@@ -23,11 +23,13 @@ class StormAnalyzer:
         self.filter = self._initialize_filter()
 
     def _load_and_filter_data(self) -> pd.DataFrame:
+        """Load and filter storm data to above mean threshold."""
         df = pd.read_csv(self.csv_path)
         df["storm_date"] = pd.to_datetime(df["storm_date"])
         return df[df["mean"] >= self.threshold]
 
     def _initialize_filter(self):
+        """Initialize storm filter."""
         if self.metrics_df["storm_date"].isnull().all():
             raise ValueError(
                 "All storm_date values are NaT. Please check the input data and ensure events meet threshold."
@@ -42,7 +44,8 @@ class StormAnalyzer:
         return StormFilter(start, end, datetime.timedelta(hours=1))
 
     def rank_and_filter_storms(self, buffer_hours: int = 24) -> pd.DataFrame:
-        """
+        """Rank and filter storms.
+
         buffer_hours represent the time between potential storm events.
         TODO: Investigate appropriate values for this and verify functionality.
         """
@@ -94,10 +97,12 @@ class StormAnalyzer:
         return df.sort_values(by="por_rank").reset_index(drop=True)
 
     def _rank_storm_ids(self) -> list[str]:
+        """Rank storm ids."""
         sorted_indices = np.argsort(self.metrics_df["mean"].values)[::-1]
         return self.metrics_df["storm_date"].dt.strftime("%Y-%m-%dT%H").iloc[sorted_indices].tolist()
 
     def rank_and_save(self, collection_id: str, spm: StacPathManager) -> pd.DataFrame:
+        """Rank storms and save to csv."""
         output_file = os.path.join(spm.collection_dir(collection_id), "ranked-storms.csv")
         ranked_df = self.rank_and_filter_storms()
         ranked_df.to_csv(output_file, index=False)
@@ -107,9 +112,7 @@ class StormAnalyzer:
 
 
 class StormFilter:
-    """
-    Filter storm events from a series of cumulative grid statistics.
-    """
+    """Filter storm events from a series of cumulative grid statistics."""
 
     def __init__(
         self,
@@ -123,17 +126,21 @@ class StormFilter:
         self.datetime_array = self._generate_datetime_array()
 
     def available_dates(self) -> np.ndarray:
+        """Get available dates."""
         return self.datetime_array.compressed()
 
     def _generate_datetime_array(self) -> np.ma.MaskedArray:
+        """Generate datetime array."""
         dt_list = np.arange(self.start, self.end, self.interval).astype("datetime64")
         return np.ma.array(data=dt_list, dtype=np.datetime64)
 
     def block_period(self, start: np.datetime64, end: np.datetime64) -> None:
+        """Block a period of time."""
         mask = (self.datetime_array >= start) & (self.datetime_array < end)
         self.datetime_array[mask] = np.ma.masked
 
     def try_block_period(self, start: datetime.datetime, end: datetime.datetime) -> bool:
+        """Try to block a period of time."""
         start_np = np.datetime64(start)
         end_np = np.datetime64(end)
         if start_np in self.available_dates() and end_np in self.available_dates():

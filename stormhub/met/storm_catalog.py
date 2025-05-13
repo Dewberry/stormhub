@@ -1,3 +1,5 @@
+"""Module for processing and creating stormhub STAC objects."""
+
 import json
 import logging
 import os
@@ -24,6 +26,8 @@ from stormhub.utils import (
 
 
 class StormCollection(pystac.Collection):
+    """Storm Collection class."""
+
     def __init__(self, collection_id: str, items: List[pystac.Item]):
         """
         Initialize a StormCollection instance.
@@ -68,7 +72,8 @@ class StormCollection(pystac.Collection):
         Args:
             collection (pystac.Collection): The existing STAC collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: A new StormCollection instance.
         """
         items = list(collection.get_all_items())
@@ -110,7 +115,6 @@ class StormCollection(pystac.Collection):
         """
         values = []
         for item in self.get_all_items():
-
             if property_name in item.properties:
                 values.append(item.properties[property_name].get(statistic))
 
@@ -233,13 +237,13 @@ class StormCatalog(pystac.Catalog):
 
     @classmethod
     def from_file(cls, file_path: str) -> "StormCatalog":
-        """
-        Create a StormCatalog from a file.
+        """Create a StormCatalog from a file.
 
         Args:
             file_path (str): Path to the catalog file.
 
-        Returns:
+        Returns
+        -------
             StormCatalog: A new StormCatalog instance.
         """
         catalog = pystac.Catalog.from_file(file_path)
@@ -267,7 +271,8 @@ class StormCatalog(pystac.Catalog):
         """
         Get the valid transposition region from the catalog links.
 
-        Returns:
+        Returns
+        -------
             Item: The valid transposition region item.
         """
         # if self._valid_transposition_region is None:
@@ -291,7 +296,8 @@ class StormCatalog(pystac.Catalog):
         """
         Get the transposition region from the catalog links.
 
-        Returns:
+        Returns
+        -------
             Item: The transposition region item.
         """
         return get_item_from_catalog_link(self.links, "Transposition Region", spm=self.spm)
@@ -301,21 +307,20 @@ class StormCatalog(pystac.Catalog):
         """
         Get the watershed from the catalog links.
 
-        Returns:
+        Returns
+        -------
             Item: The watershed item.
         """
         return get_item_from_catalog_link(self.links, "Watershed", spm=self.spm)
 
     def sanitize_catalog_assets(self):
-        """
-        Forces the asset paths in the catalog relative to root.
-        """
+        """Force the asset paths in the catalog relative to root."""
         for collection in self.get_all_collections():
             for asset in collection.assets.values():
-                if self.spm.collection_dir(collection.id) in asset.href:
-                    asset.href = asset.href.replace(self.spm.collection_dir(collection.id), ".")
-                elif self.spm.catalog_dir in asset.href:
-                    asset.href = asset.href.replace(self.spm.catalog_dir, "..")
+                if self.spm.collection_dir(collection.id).replace("\\", "/") in asset.href:
+                    asset.href = asset.href.replace(self.spm.collection_dir(collection.id).replace("\\", "/"), ".")
+                elif self.spm.catalog_dir.replace("\\", "/") in asset.href:
+                    asset.href = asset.href.replace(self.spm.catalog_dir.replace("\\", "/"), "..")
 
             for item in collection.get_all_items():
                 for asset in item.assets.values():
@@ -334,7 +339,8 @@ class StormCatalog(pystac.Catalog):
         Args:
             hydro_domain (Union[HydroDomain, Item]): The hydro domain to add.
 
-        Returns:
+        Returns
+        -------
             str: The ID of the added hydro domain.
         """
         if not isinstance(hydro_domain, (HydroDomain, Item)):
@@ -342,21 +348,21 @@ class StormCatalog(pystac.Catalog):
         try:
             title = hydro_domain.title
         except AttributeError:
-            title = hydro_domain.item_id
+            title = hydro_domain.id
 
         self.add_link(
             Link(
-                rel="Hydro_Domains",
-                target=self.spm.catalog_asset(hydro_domain.item_id).replace(self.spm.catalog_dir, "."),
+                rel="item",
+                target=self.spm.catalog_asset(hydro_domain.id).replace(self.spm.catalog_dir, "."),
                 title=title,
                 media_type=pystac.MediaType.GEOJSON,
                 extra_fields={
-                    "Name": hydro_domain.item_id,
-                    "Description": f"Input {hydro_domain.item_id} used to generate this catalog",
+                    "Name": hydro_domain.id,
+                    "Description": f"Input {hydro_domain.id} used to generate this catalog",
                 },
             )
         )
-        return hydro_domain.item_id
+        return hydro_domain.id
 
     def get_storm_collection(self, collection_id: str) -> StormCollection:
         """
@@ -365,7 +371,8 @@ class StormCatalog(pystac.Catalog):
         Args:
             collection_id (str): The ID of the collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: The storm collection.
         """
         collection = self.get_child(collection_id)
@@ -374,9 +381,7 @@ class StormCatalog(pystac.Catalog):
         return StormCollection.from_collection(collection)
 
     def save_catalog(self):
-        """
-        Save the catalog and its collections.
-        """
+        """Save the catalog and its collections."""
         for collection in self.get_all_collections():
             collection.save_object(dest_href=self.spm.collection_file(collection.id), include_self_link=False)
         self.sanitize_catalog_assets()
@@ -416,7 +421,8 @@ class StormCatalog(pystac.Catalog):
             collection_id (str): The ID of the new collection.
             items (List[Item]): List of items to include in the collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: The new storm collection.
         """
         collection = StormCollection(collection_id, items)
@@ -472,10 +478,10 @@ class StormCatalog(pystac.Catalog):
             collection_id (str): The ID of the new collection.
             items (List[Item]): List of items to include in the collection.
 
-        Returns:
+        Returns
+        -------
             StormCollection: The new storm collection.
         """
-
         collection = self.get_storm_collection(collection_id)
 
         top_events.loc[:, "storm_id"] = top_events["storm_date"].apply(lambda x: f"{x.strftime('%Y-%m-%dT%H')}")
@@ -518,6 +524,7 @@ def storm_search(
     catalog: StormCatalog,
     storm_start_date: datetime,
     storm_duration_hours: int,
+    por_rank: int = None,
     return_item: bool = False,
     scale_max: float = 12.0,
     collection_id: str = None,
@@ -533,7 +540,8 @@ def storm_search(
         scale_max (float): The maximum scale for the thumbnail.
         collection_id (str): The ID of the collection.
 
-    Returns:
+    Returns
+    -------
         Union[dict, AORCItem]: The storm search results or the storm item.
     """
     if not collection_id:
@@ -547,8 +555,10 @@ def storm_search(
         watershed.id,
         storm_duration_hours,
     )
-
-    item_id = f"{storm_start_date.strftime('%Y-%m-%dT%H')}"
+    if por_rank:
+        item_id = f"{por_rank}"
+    else:
+        item_id = f"{storm_start_date.strftime('%Y-%m-%dT%H')}"
     item_dir = catalog.spm.collection_item_dir(collection_id, item_id)
 
     event_item = AORCItem(
@@ -582,6 +592,46 @@ def storm_search(
         }
 
 
+def serial_processor(
+    func: callable,
+    catalog: StormCatalog,
+    storm_duration: int,
+    output_csv: str,
+    event_dates: list[datetime],
+    with_tb: bool = False,
+):
+    """
+    Run function in serial using only one processor.
+
+    Args:
+        func (callable): The function to run.
+        catalog (StormCatalog): The storm catalog.
+        storm_duration (int): The duration of the storm.
+        output_csv (str): Path to the output CSV file.
+        event_dates (list[datetime]): List of event dates.
+        with_tb (bool): Whether to include traceback in error logs.
+    """
+    if not os.path.exists(output_csv):
+        with open(output_csv, "w", encoding="utf-8") as f:
+            f.write("storm_date,min,mean,max,x,y\n")
+
+    count = len(event_dates)
+
+    with open(output_csv, "a", encoding="utf-8") as f:
+        for date in event_dates:
+            try:
+                r = func(catalog, date, storm_duration)
+                f.write(storm_search_results_to_csv_line(r))
+                logging.info("%s processed (%d remaining)", r["storm_date"], count)
+                count -= 1
+            except Exception as e:
+                if with_tb:
+                    tb = traceback.format_exc()
+                    logging.error("Error processing: %s\n%s", e, tb)
+                else:
+                    logging.error("Error processing: %s", e)
+
+
 def multi_processor(
     func: callable,
     catalog: StormCatalog,
@@ -594,6 +644,7 @@ def multi_processor(
 ):
     """
     Run function in parallel using multiple processors or threads.
+
     TODO: Consider using this for `storm_search` in creating items as well as collecting event stats.
 
     Args:
@@ -646,6 +697,7 @@ def collect_event_stats(
     num_workers: int = None,
     use_threads: bool = False,
     with_tb: bool = False,
+    use_parallel_processing: bool = True,
 ):
     """
     Collect statistics for storm events.
@@ -658,8 +710,8 @@ def collect_event_stats(
         num_workers (int, optional): Number of workers to use.
         use_threads (bool): Whether to use threads instead of processes.
         with_tb (bool): Whether to include traceback in error logs.
+        use_parallel_processing (bool): Whether to process storm stats using parallel processing.
     """
-
     if not collection_id:
         collection_id = catalog.spm.storm_collection_id(storm_duration)
 
@@ -677,17 +729,28 @@ def collect_event_stats(
         num_workers = 15
 
     output_csv = os.path.join(collection_dir, "storm-stats.csv")
-
-    multi_processor(
-        func=storm_search,
-        catalog=catalog,
-        storm_duration=storm_duration,
-        output_csv=output_csv,
-        event_dates=event_dates,
-        num_workers=num_workers,
-        use_threads=use_threads,
-        with_tb=with_tb,
-    )
+    if use_parallel_processing:
+        logging.info("Using %s cpu's for collecting event stats", num_workers)
+        multi_processor(
+            func=storm_search,
+            catalog=catalog,
+            storm_duration=storm_duration,
+            output_csv=output_csv,
+            event_dates=event_dates,
+            num_workers=num_workers,
+            use_threads=use_threads,
+            with_tb=with_tb,
+        )
+    else:
+        logging.info("Processing event stats serially.")
+        serial_processor(
+            func=storm_search,
+            catalog=catalog,
+            storm_duration=storm_duration,
+            output_csv=output_csv,
+            event_dates=event_dates,
+            with_tb=with_tb,
+        )
 
 
 def create_items(
@@ -699,17 +762,18 @@ def create_items(
     with_tb: bool = False,
 ) -> List:
     """
-    Create items for storm events.
+    Create items for storm events, setting the item ID to `por_rank` instead of storm_date.
 
     Args:
-        event_dates (list[dict]): List of event dates.
+        event_dates (list[dict]): List of event metadata (includes storm_date & por_rank).
         catalog (StormCatalog): The storm catalog.
         collection_id (str, optional): The ID of the collection.
         storm_duration (int): The duration of the storm.
         num_workers (int, optional): Number of workers to use.
         with_tb (bool): Whether to include traceback in error logs.
 
-    Returns:
+    Returns
+    -------
         list: List of created event items.
     """
     event_items = []
@@ -726,14 +790,22 @@ def create_items(
     if not num_workers:
         num_workers = os.cpu_count()
 
-    events = [e["storm_date"] for e in event_dates]
+    storm_data = [(e["storm_date"], e["por_rank"]) for e in event_dates]
+
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(
-                storm_search, catalog, storm_date, storm_duration, collection_id=collection_id, return_item=True
+                storm_search,
+                catalog,
+                storm_date,
+                storm_duration,
+                por_rank=por_rank,
+                collection_id=collection_id,
+                return_item=True,
             )
-            for storm_date in events
+            for storm_date, por_rank in storm_data
         ]
+
         for future in as_completed(futures):
             count -= 1
             try:
@@ -745,10 +817,9 @@ def create_items(
                 if with_tb:
                     tb = traceback.format_exc()
                     logging.error("Error processing: %s\n%s", e, tb)
-                    continue
                 else:
                     logging.error("Error processing: %s", e)
-                    continue
+
     return event_items
 
 
@@ -764,7 +835,8 @@ def init_storm_catalog(
         local_catalog_dir (str): Local directory for the catalog.
         create_valid_transposition_region (bool): Whether to create a valid transposition region.
 
-    Returns:
+    Returns
+    -------
         pystac.Catalog: The initialized catalog.
     """
     watershed_config = config.get("watershed")
@@ -821,7 +893,8 @@ def get_item_from_catalog_link(links: list, link_title: str, spm: StacPathManage
         link_title (str): The title of the link.
         spm (StacPathManager): The STAC path manager.
 
-    Returns:
+    Returns
+    -------
         Item: The item from the catalog link.
     """
     matched_links = [link for link in links if link.title == link_title]
@@ -829,7 +902,12 @@ def get_item_from_catalog_link(links: list, link_title: str, spm: StacPathManage
         return None
     if len(matched_links) > 1:
         raise ValueError(f"Multiple links found with title: {link_title}")
-    absolute_path = f'{spm.catalog_dir}/{matched_links[0].target.replace("./", "")}'
+
+    relative_path = matched_links[0].target.replace("./", "")
+    absolute_path = os.path.join(spm.catalog_dir, relative_path)
+
+    absolute_path = os.path.abspath(absolute_path)
+
     item = pystac.read_file(absolute_path)
     if not isinstance(item, Item):
         raise ValueError(f"Expected an Item object at {absolute_path} not : {type(item)}")
@@ -843,7 +921,8 @@ def storm_search_results_to_csv_line(storm_search_results: dict) -> str:
     Args:
         storm_search_results (dict): The storm search results.
 
-    Returns:
+    Returns
+    -------
         str: The CSV line.
     """
     event_stats = storm_search_results["aorc:statistics"]
@@ -863,7 +942,8 @@ def find_missing_storm_dates(file_path: str, start_date: str, stop_date: str, ev
         stop_date (str): The stop date.
         every_n_hours (int): The interval in hours.
 
-    Returns:
+    Returns
+    -------
         list: List of missing storm dates.
     """
     df = pd.read_csv(file_path)
@@ -898,10 +978,10 @@ def new_catalog(
         local_directory (str, optional): Local directory for the catalog.
         catalog_description (str): Description of the catalog.
 
-    Returns:
+    Returns
+    -------
         StormCatalog: The new storm catalog.
     """
-
     # Step 1: Load config
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
@@ -928,6 +1008,7 @@ def new_catalog(
     )
 
     storm_catalog.save()
+    logging.info("Catalog has been created.")
     return storm_catalog
 
 
@@ -989,11 +1070,12 @@ def new_collection(
     collection_id = storm_catalog.spm.storm_collection_id(storm_duration)
     logging.info("Creating collection `%s` for period %s - %s", collection_id, start_date, end_date)
 
-    stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     if dates:
         logging.info("Collecting event stats for %d dates", len(dates))
-        collect_event_stats(dates, storm_catalog, collection_id, num_workers=num_workers, with_tb=with_tb)
-
+        collect_event_stats(
+            dates, storm_catalog, collection_id, storm_duration, num_workers=num_workers, with_tb=with_tb
+        )
+    stats_csv = os.path.join(storm_catalog.spm.collection_dir(collection_id), "storm-stats.csv")
     try:
         logging.info("Starting storm analysis for: %s", stats_csv)
         analyzer = StormAnalyzer(stats_csv, min_precip_threshold, storm_duration)
@@ -1019,6 +1101,7 @@ def new_collection(
 
     storm_catalog.add_collection_to_catalog(collection, override=True)
     storm_catalog.save_catalog()
+    return collection
 
 
 def resume_collection(

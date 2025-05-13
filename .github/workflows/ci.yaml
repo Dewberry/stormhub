@@ -50,14 +50,14 @@ jobs:
     - name: Build wheel and source distribution
       run: python -m build
 
-    - name: Install the built wheel 
-      run: | 
-        python -c "import glob; import subprocess; wheel_files = glob.glob('dist/*.whl'); subprocess.check_call(['pip', 'install', wheel_files[0]])" 
+    - name: Install the built wheel
+      run: |
+        python -c "import glob; import subprocess; wheel_files = glob.glob('dist/*.whl'); subprocess.check_call(['pip', 'install', wheel_files[0]])"
 
-    # - name: Lint (ruff)
-    #   run: |
-    #     ruff check .
-    #     ruff format --check
+    - name: Lint (ruff)
+      run: |
+        ruff check .
+        ruff format --check
 
     # - name: Run tests with coverage
     #   run: |

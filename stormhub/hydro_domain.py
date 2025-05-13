@@ -1,11 +1,13 @@
+"""Hydrodomain Item class."""
+
 from datetime import datetime
 from typing import Any, Union
-
+import logging
 import fiona.errors
 import geopandas as gpd
 from pystac import Item
 from pystac.extensions.projection import ProjectionExtension
-from shapely.geometry import Polygon, mapping, shape
+from shapely.geometry import Polygon, mapping, shape, MultiPolygon
 
 HYDRO_DOMAIN_DESCRIPTION = "hydro_domain:description"
 HYDRO_DOMAIN_TYPE = "hydro_domain:type"
@@ -35,7 +37,6 @@ class HydroDomain(Item):
         relevant_datetime_description: str = None,
         **kwargs: Any,
     ):
-
         self.item_id = item_id
         self.geometry = self.load_geometry(geometry)
         if hydro_domain_type not in ["watershed", "transposition_region", "valid_transposition_region"]:
@@ -121,7 +122,16 @@ class HydroDomain(Item):
         else:
             raise ValueError("geometry_source must be a file path or a Polygon object")
 
-        if len(gdf) != 1 or not isinstance(gdf.geometry.iloc[0], Polygon):
+        if len(gdf) != 1:
+            raise ValueError("The geometry must contain a single polygon")
+
+        geometry = gdf.geometry.iloc[0]
+        if isinstance(geometry, MultiPolygon) and len(geometry.geoms) == 1:
+            logging.warning("Multipolygon type detected, attempting conversion to Polygon.")
+            geometry = geometry.geoms[0]
+            gdf.at[gdf.index[0], "geometry"] = geometry
+
+        if not isinstance(geometry, Polygon):
             raise ValueError("The geometry must contain a single polygon")
 
         try:
