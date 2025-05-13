@@ -27,7 +27,7 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
     watershed = gpd.read_file(watershed)
     bbox = [round(coord, 6) for coord in watershed.total_bounds.tolist()]
 
-    gages_in_watershed_bbox = nwis.get_info(bBox=bbox)[0]
+    gages_in_watershed_bbox = nwis.get_info(bBox=bbox, parameterCd=["00060", "00065"])[0]
 
     watershed_geom = watershed.iloc[0].geometry
     gages_within_watershed = gages_in_watershed_bbox[gages_in_watershed_bbox.within(watershed_geom)]
@@ -40,15 +40,19 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
         site_id = row.site_no
         logging.info(f"Checking gage {site_id}")
         if len(site_id) == 8:
-            logging.info(f"Removing  {site_id} potentially invalid gage {site_id}")
-        else:
             candidate_gages.append(site_id)
+        else:
+            logging.info(f"Removing potentially invalid gage {site_id}")
+
+    if len(candidate_gages) == 0:
+        logging.error("No valid gages found within given watershed.")
+    else:
+        logging.info(f"Found {len(candidate_gages)} valid gage numbers in watershed")
 
     if min_num_records is None:
         return candidate_gages
 
     valid_gage_nums = []
-    logging.info(f"Found {len(candidate_gages)} valid gage numbers in watershed")
     for gage_num in candidate_gages:
         try:
             logging.info(f"Checking period of record for `{gage_num}`")
@@ -56,7 +60,7 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
                 valid_gage_nums.append(gage_num)
         except NoSitesError:
             continue
-    logging.info(f"Found {len(valid_gage_nums)} valid gage numbers in watershed")
+    logging.info(f"Found {len(valid_gage_nums)} valid gage numbers in watershed with min period of record.")
     return valid_gage_nums
 
 
