@@ -45,7 +45,8 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
             logging.info(f"Removing potentially invalid gage {site_id}")
 
     if len(candidate_gages) == 0:
-        logging.error("No valid gages found within given watershed.")
+        logging.warning("No valid gages found within given watershed.")
+        return []
     else:
         logging.info(f"Found {len(candidate_gages)} valid gage numbers in watershed")
 
