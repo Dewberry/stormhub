@@ -24,6 +24,8 @@ This module extends the work of [RainyDay2](https://her.cee.wisc.edu/rainyday/ra
 - Links to associated watershed and transposition region STAC items.
 - Supports creation of **DSS files** (hourly gridded) for use in HEC-HMS for hydrologic modeling.
 
+*Note on hec-dss*: To export gridded time series data from xarray to hecdss, [hec-dss-python](https://github.com/HydrologicEngineeringCenter/hec-dss-python) is required. Please visit the repo for details and installation instructions.
+
 ### 2. USGS Gage Catalog Module
 This module creates a STAC catalog of USGS stream gages, including frequency analysis data and metadata notes providing a *moment in time* copy of historic observations.
 
@@ -45,7 +47,10 @@ StormHub facilitates FAIR data principles by enabling:
 
 ## Installation
 ```bash
-# Clone the repository
+# Using pip
+pip install stormhub
+
+# From source: Clone the repository
 git clone https://github.com/dewberry/stormhub.git
 
 # Navigate to the project directory

@@ -1,12 +1,13 @@
 """USGS gage utility functions."""
 
-from dataretrieval import nwis, NoSitesError
-import geopandas as gpd
-from typing import Optional, List
 import logging
-import scipy.stats as stats
+from typing import List, Optional
+
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+import scipy.stats as stats
+from dataretrieval import NoSitesError, nwis
 
 
 def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = None) -> List[str]:
@@ -22,34 +23,49 @@ def find_gages_in_watershed(watershed: str, min_num_records: Optional[int] = Non
     -------
         List[str]: A list of USGS gage site numbers that meet the criteria.
     """
-    logging.info("Finding gages within watershed")
+    logging.info("Searching watershed for gages")
     watershed = gpd.read_file(watershed)
     bbox = [round(coord, 6) for coord in watershed.total_bounds.tolist()]
 
-    gages_in_watershed_bbox = nwis.get_info(bBox=bbox)[0]
+    gages_in_watershed_bbox = nwis.get_info(bBox=bbox, parameterCd=["00060", "00065"])[0]
 
     watershed_geom = watershed.iloc[0].geometry
     gages_within_watershed = gages_in_watershed_bbox[gages_in_watershed_bbox.within(watershed_geom)]
-    filtered_gages = gages_within_watershed[
-        gages_within_watershed["site_no"].str.len() == 8
-    ]  # Filter out gages where the site number is not 8 digits.
-    gage_nums = filtered_gages["site_no"].to_list()
+
+    candidate_gages = []
+    logging.info(
+        f"USGS API returned {len(gages_within_watershed)} responses, filtering for valid gages based in site_no length (must = 8 characters)"
+    )
+    for row in gages_within_watershed.itertuples():
+        site_id = row.site_no
+        logging.info(f"Checking gage {site_id}")
+        if len(site_id) == 8:
+            candidate_gages.append(site_id)
+        else:
+            logging.info(f"Removing potentially invalid gage {site_id}")
+
+    if len(candidate_gages) == 0:
+        logging.warning("No valid gages found within given watershed.")
+        return []
+    else:
+        logging.info(f"Found {len(candidate_gages)} valid gage numbers in watershed")
 
     if min_num_records is None:
-        return gage_nums
+        return candidate_gages
 
     valid_gage_nums = []
-    for gage_num in gage_nums:
+    for gage_num in candidate_gages:
         try:
+            logging.info(f"Checking period of record for `{gage_num}`")
             if len(nwis.get_record(service="peaks", sites=[gage_num])) >= min_num_records:
                 valid_gage_nums.append(gage_num)
         except NoSitesError:
             continue
-    logging.info(f"Found {len(valid_gage_nums)} valid gage numbers in watershed")
+    logging.info(f"Found {len(valid_gage_nums)} valid gage numbers in watershed with min period of record.")
     return valid_gage_nums
 
 
-def log_pearson_iii(peak_flows: pd.Series, standard_return_periods: list = [2, 5, 10, 25, 50, 100, 500]):
+def log_pearson_iii(peak_flows: pd.Series, standard_return_periods: list = [2, 5, 10, 25, 50, 100, 500]) -> dict:
     """Calculate peak flow estimates for specified return periods using the Log-Pearson Type III distribution.
 
     Args:
