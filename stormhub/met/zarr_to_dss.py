@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from enum import Enum
 import math
-from typing import List, Tuple, Literal
+from typing import List, Tuple, Literal, Dict
 from affine import Affine
 from hecdss import HecDss, gridded_data
 import numpy as np
@@ -13,6 +13,13 @@ from geopandas import GeoDataFrame
 import s3fs
 import xarray as xr
 from stormhub.met.consts import NOAA_AORC_S3_BASE_URL, KM_TO_M_CONVERSION_FACTOR, SHG_WKT
+import logging
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 
 
 class MeasurementType(Enum):
@@ -322,7 +329,29 @@ def write_to_dss(
     """
     dss = HecDss(output_dss_path)
     output_resolution_m = output_resolution_km * KM_TO_M_CONVERSION_FACTOR
-    data: xr.DataArray = data.rio.reproject(SHG_WKT, resolution=output_resolution_m)
+
+    logging.info(f"reprojecting dataset")
+    times = data.time.values
+
+    if len(times) <= 144:
+        data: xr.DataArray = data.rio.reproject(SHG_WKT, resolution=output_resolution_m)
+    else:
+        # For larger datasets, chunking is used to avoid memory issues
+        logging.info(f"Chunking dataset for reprojection")
+        time_chunk_size = 144
+        reprojected_chunks = []
+
+        for i in range(0, len(times), time_chunk_size):
+            logging.info("reprojecting chunk")
+
+            chunk_times = times[i : i + time_chunk_size]
+            chunk = data.sel(time=chunk_times)
+            chunk = chunk.rio.reproject(SHG_WKT, resolution=output_resolution_m)
+            reprojected_chunks.append(chunk)
+
+        data = xr.concat(reprojected_chunks, dim="time")
+
+    logging.info("DONE reprojecting")
     lower_x, lower_y = get_lower_left_xy(data, output_resolution_m)
 
     for time_step in data.time:
@@ -330,6 +359,7 @@ def write_to_dss(
         time_step_data = np.flipud(time_step_data.to_numpy())
 
         date = Timestamp(time_step.values).to_pydatetime()
+        logging.info(f"processing timestep: {date}")
         start_dt_str, end_dt_str = date_range_dss_path_format(date, param_measurement_type)
 
         path = DSSPath(
@@ -340,7 +370,6 @@ def write_to_dss(
             end_dt_str,
             data_version.upper(),
         )
-
         gd = create_gridded_data(
             path=path,
             data=time_step_data,
@@ -363,32 +392,40 @@ def noaa_zarr_to_dss(
     aoi_geometry_gpkg_path: str,
     aoi_name: str,
     storm_start: datetime,
-    storm_duration: int,
-    variables_of_interest: List[NOAADataVariable],
+    variable_duration_map: Dict[NOAADataVariable, int],
 ):
     """Given a geometry and datetime information about a storm, writes variables of interest from NOAA dataset to DSS."""
     # arrange parameters
+    all_variables = list(variable_duration_map.keys())
+    min_start = storm_start + timedelta(hours=1)  # make exclusive
+    max_end = storm_start + timedelta(hours=max(variable_duration_map.values()))
+    aorc_paths = get_aorc_paths(min_start, max_end)
     aoi_gdf = gpd.read_file(aoi_geometry_gpkg_path)
-    storm_end = storm_start + timedelta(hours=storm_duration)
-    storm_start += timedelta(hours=1)  # do this to make start time exclusive
-    aorc_paths = get_aorc_paths(storm_start, storm_end)
-    voi_keys = [voi.value for voi in variables_of_interest]
+    voi_keys = [v.value for v in all_variables]
 
     # get aorc data
-    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, storm_start, storm_end, voi_keys)
+    logging.info("getting aorc data")
+    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, min_start, max_end, voi_keys)
+    logging.info("Done getting aorc")
 
     # write to dss
-    for data_variable in variables_of_interest:
-        data = aorc_data[data_variable.value]
+    for data_variable, duration in variable_duration_map.items():
+        var_start = storm_start + timedelta(hours=1)
+        var_end = storm_start + timedelta(hours=duration)
+        data = aorc_data[data_variable.value].sel(time=slice(var_start, var_end))
+
         if data_variable == NOAADataVariable.TMP:
+            logging.info("converting temp dataset")
             data = convert_temperature_dataset(data)
+            logging.info("DONE converting temp dataset")
+        logging.info("writing to dss")
         write_to_dss(
-            output_dss_path,
-            data=aorc_data[data_variable.value],
+            output_dss_path=output_dss_path,
+            data=data,
             aoi_name=aoi_name,
             param_name=data_variable.dss_variable_title,
             param_measurement_type=data_variable.measurement_type,
             param_measurement_unit=data_variable.measurement_unit,
-            output_resolution_km=1,
+            output_resolution_km=4,
             data_version="AORC",
         )
