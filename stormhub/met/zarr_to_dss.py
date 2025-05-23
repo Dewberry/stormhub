@@ -158,28 +158,44 @@ def get_lower_left_xy(
     return (lower_left_x, lower_left_y)
 
 
-def convert_temperature_dataset(data: xr.Dataset) -> xr.Dataset:
+def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.Dataset:
     """Convert temperature in Kelvin to the desired output_unit."""
     output_unit = NOAADataVariable.TMP.measurement_unit
     data_unit = data.units
     if data_unit != "K":
         raise ValueError(f"Expected temperature data in Kelvin, got measurement unit of {data_unit} instead")
+
     if output_unit != "K":
         data_shape = data.shape
         c_degrees_difference = np.full(data_shape, 273.15)
-        if output_unit == "DEG C":
-            data = np.subtract(data, c_degrees_difference)
-        elif output_unit == "DEG F":
-            c_data = np.subtract(data, c_degrees_difference)
-            scale_difference = np.full(data_shape, 9 / 5)
-            scale_data = np.multiply(c_data, scale_difference)
-            f_difference = np.full(data_shape, 32)
-            f_data = np.add(scale_data, f_difference)
-            data = f_data
-        else:
-            raise ValueError(
-                f"Temperature conversion only supported from Kelvin (K) to Celsius (DEG C) or Farenheit (DEG F); got output unit of {output_unit} instead"
-            )
+        num_chunks = (data_shape[0] + chunk_size - 1) // chunk_size
+
+        converted_chunks = []
+
+        for i in range(num_chunks):
+            start = i * chunk_size
+            end = min((i + 1) * chunk_size, data_shape[0])
+
+            data_chunk = data.isel(time=slice(start, end))
+
+            if output_unit == "DEG C":
+                converted_chunk = data_chunk - c_degrees_difference[start:end]
+            elif output_unit == "DEG F":
+                c_data_chunk = data_chunk - c_degrees_difference[start:end]
+                scale_difference = np.full(c_data_chunk.shape, 9 / 5)
+                scale_data_chunk = c_data_chunk * scale_difference
+                f_difference = np.full(c_data_chunk.shape, 32)
+                converted_chunk = scale_data_chunk + f_difference
+            else:
+                raise ValueError(
+                    f"Temperature conversion only supported from Kelvin (K) to Celsius (DEG C) or Fahrenheit (DEG F); got output unit of {output_unit} instead"
+                )
+
+            converted_chunks.append(converted_chunk)
+
+        # Concatenate all converted chunks along the 'time' dimension
+        data = xr.concat(converted_chunks, dim="time")
+
     return data
 
 
@@ -370,6 +386,7 @@ def write_to_dss(
             end_dt_str,
             data_version.upper(),
         )
+
         gd = create_gridded_data(
             path=path,
             data=time_step_data,
