@@ -283,39 +283,88 @@ def create_gridded_data(
     return gd
 
 
+def interpolate_nan_values(ds: xr.DataArray) -> xr.DataArray:
+    """
+    Interpolates missing NaN values in a DataArray along the 'latitude' and 'longitude' dimensions
+    using linear interpolation. Averages the results from both directions and fills remaining NaNs.
+    """
+    ds2_rechunked = ds.chunk({"latitude": -1, "longitude": -1})
+
+    interpolated_lon = ds2_rechunked.interpolate_na(dim="longitude", method="linear")
+    interpolated_lat = ds2_rechunked.interpolate_na(dim="latitude", method="linear")
+
+    both_valid = (~interpolated_lon.isnull()) & (~interpolated_lat.isnull())
+    average = (interpolated_lon + interpolated_lat) / 2
+
+    interpolated_combined = xr.where(both_valid, average, interpolated_lon.combine_first(interpolated_lat))
+    interpolated_combined.rio.write_crs(ds.rio.crs, inplace=True)
+
+    interpolated_combined.attrs["units"] = "K"
+
+    return interpolated_combined
+
+
 def get_s3_zarr_data(
-    s3_paths: List[str], aoi_gdf: GeoDataFrame, start_dt: datetime, end_dt: datetime, variables_of_interest: List[str]
+    s3_paths: List[str],
+    aoi_gdf: GeoDataFrame,
+    start_dt: datetime,
+    end_dt: datetime,
+    variables_of_interest: List[str],
+    interp_nan_vals: bool = True,
 ) -> xr.Dataset:
     """
-    Read a multifile dataset from the specified S3 paths, filters it based on the area of interest (AOI) and the time range, extracts only the variables of interest and returns an xarray Dataset.
-
-    Args:
-        s3_paths: A list of S3 paths where the Zarr data is stored.
-        aoi_gdf: A GeoDataFrame containing the area of interest. Only the first entry is used, and should be a polygon or multipolygon geometry.
-        start_dt: The start datetime to filter the data.
-        end_dt: The end datetime to filter the data.
-        variables_of_interest: A list of variables to select from the dataset. If empty, all variables will be read.
+    Loads and processes Zarr datasets from S3, clips them to a given area of interest (AOI),
+    filters by time and variables, and optionally interpolates missing values.
     """
+
     s3 = s3fs.S3FileSystem(anon=True)
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
     ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
 
-    # subset data to only the variables
+    # Select only variables of interest
     if variables_of_interest:
         ds = ds[variables_of_interest]
 
-    # reproject aoi to crs of dataset
+    # Reproject AOI and clip spatially
     aoi_gdf = aoi_gdf.to_crs(ds.rio.crs)
     aoi_shape = aoi_gdf.geometry.iloc[0]
-
-    # get a rough subsection of the dataset based on time and aoi in order to reduce it's size
-    # this results in a speed improvement for rio.clip if the xarray.Dataset is sufficiently sized
     bounds = aoi_shape.bounds
     ds = ds.sel(
         time=slice(start_dt, end_dt), longitude=slice(bounds[0], bounds[2]), latitude=slice(bounds[1], bounds[3])
     )
+    if interp_nan_vals:
+        # Interpolate missing values for each variable
+        for var in ds.data_vars:
+            data_var = ds[var]
 
-    # clip ds to exact shape
+            # Compute valid land mask
+            valid_mask = ~data_var.isnull().all("time")
+
+            # Determine which time slices need interpolation
+            nan_mask = data_var.isnull() & valid_mask
+            needs_interp = nan_mask.any(dim=["latitude", "longitude"]).compute()
+
+            if not needs_interp.any():
+                logging.info(f"All data for {var} is valid")
+                continue
+
+            # Interpolate time slices
+            interpolated_slices = []
+            for i, t in enumerate(data_var.time.values):
+                if needs_interp[i]:
+                    logging.info(f"Missing data for var {var} at time {t}. Interpolating...")
+                    slice_ = data_var.sel(time=t)
+                    interpolated = interpolate_nan_values(slice_)
+                    interpolated_slices.append(interpolated.expand_dims(time=[t]))
+
+            # Combine interpolated slices with original
+            if interpolated_slices:
+                interpolated_ds = xr.concat(interpolated_slices, dim="time")
+                data_var = data_var.combine_first(interpolated_ds)
+
+            ds[var] = data_var
+
+    # Final spatial clip
     ds = ds.rio.clip([aoi_shape], drop=True, all_touched=True)
 
     return ds
