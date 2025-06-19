@@ -168,9 +168,8 @@ class StormCollection(pystac.Collection):
                 "geometry": mapping(geom),
                 "properties": {
                     "id": item.id,
+                    "storm_start_date": item.properties.get("start_datetime").split("T")[0],
                     "aorc:statistics": item.properties.get("aorc:statistics"),
-                    "aorc:calendar_year_rank": item.properties.get("aorc:calendar_year_rank"),
-                    "aorc:collection_rank": item.properties.get("aorc:collection_rank"),
                 },
             }
             features.append(feature)
