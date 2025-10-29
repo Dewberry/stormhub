@@ -273,7 +273,7 @@ def get_s3_zarr_data(
         end_dt: The end datetime to filter the data.
         variables_of_interest: A list of variables to select from the dataset. If empty, all variables will be read.
     """
-    s3 = s3fs.S3FileSystem(anon=True)
+    s3 = s3fs.S3FileSystem(anon=True, config_kwargs={'max_pool_connections': 50})
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
     ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
 

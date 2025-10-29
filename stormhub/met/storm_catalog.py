@@ -7,6 +7,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any, List, Union
+import gc
 
 import pandas as pd
 import pystac
@@ -578,6 +579,10 @@ def storm_search(
     logging.debug("Statistics: %s", event_stats)
     logging.debug("Storm Date: %s", storm_start_date.strftime("%Y-%m-%dT%H"))
     logging.debug("Destination href: %s", catalog.spm.collection_item(collection_id, event_item.id))
+    
+    # Clear cached data immediately to free memory
+    event_item.clear_cached_data()
+    
     if return_item:
         if not os.path.exists(item_dir):
             os.makedirs(item_dir)
@@ -585,11 +590,14 @@ def storm_search(
         event_item.save_object(dest_href=catalog.spm.collection_item(collection_id, event_item.id))
         return event_item
     else:
-        return {
+        result = {
             "storm_date": storm_start_date.strftime("%Y-%m-%dT%H"),
             "centroid": centroid,
             "aorc:statistics": event_stats,
         }
+        del event_item
+        gc.collect()
+        return result
 
 
 def serial_processor(
@@ -658,35 +666,49 @@ def multi_processor(
         with_tb (bool): Whether to include traceback in error logs.
     """
     if use_threads:
-        executor = ThreadPoolExecutor
+        executor_class = ThreadPoolExecutor
     else:
-        executor = ProcessPoolExecutor
+        executor_class = ProcessPoolExecutor
 
     if not os.path.exists(output_csv):
-        # append_mode=True
         with open(output_csv, "w", encoding="utf-8") as f:
             f.write("storm_date,min,mean,max,x,y\n")
 
     count = len(event_dates)
 
-    with open(output_csv, "a", encoding="utf-8") as f:
-        with executor(max_workers=num_workers) as executor:
-            futures = [executor.submit(func, catalog, date, storm_duration) for date in event_dates]
-            for future in as_completed(futures):
-                count -= 1
-                try:
-                    r = future.result()
-                    f.write(storm_search_results_to_csv_line(r))
-                    logging.info("%s processed (%d remaining)", r["storm_date"], count)
-
-                except Exception as e:
-                    if with_tb:
-                        tb = traceback.format_exc()
-                        logging.error("Error processing: %s\n%s", e, tb)
-                        continue
-                    else:
-                        logging.error("Error processing: %s", e)
-                        continue
+    # Process in smaller batches to avoid memory buildup
+    # Use smaller batch size to limit memory: only queue num_workers tasks at a time
+    batch_size = num_workers  # Changed from num_workers * 2 to just num_workers
+    
+    with executor_class(max_workers=num_workers) as executor:
+        for i in range(0, len(event_dates), batch_size):
+            batch = event_dates[i:i + batch_size]
+            futures = [executor.submit(func, catalog, date, storm_duration) for date in batch]
+            
+            # Write results as they complete
+            with open(output_csv, "a", encoding="utf-8") as f:
+                for future in as_completed(futures):
+                    count -= 1
+                    try:
+                        r = future.result()
+                        f.write(storm_search_results_to_csv_line(r))
+                        f.flush()  # Force write to disk
+                        logging.info("%s processed (%d remaining)", r["storm_date"], count)
+                        
+                        # Explicitly delete result to free memory
+                        del r
+                        
+                    except Exception as e:
+                        if with_tb:
+                            tb = traceback.format_exc()
+                            logging.error("Error processing: %s\n%s", e, tb)
+                        else:
+                            logging.error("Error processing: %s", e)
+            
+            # Clear futures list and force garbage collection between batches
+            del futures
+            del batch
+            gc.collect()
 
 
 def collect_event_stats(
@@ -1017,7 +1039,7 @@ def new_collection(
     start_date: str = "1979-02-01",
     end_date: str = None,
     storm_duration: int = 72,
-    min_precip_threshold: int = 1,
+    min_precip_threshold: float = 1.0,
     top_n_events: int = 5,
     check_every_n_hours: int = 6,
     specific_dates: list = None,
@@ -1033,7 +1055,7 @@ def new_collection(
         start_date (str): The start date for the collection.
         end_date (str, optional): The end date for the collection.
         storm_duration (int): The duration of the storm.
-        min_precip_threshold (int): The minimum precipitation threshold.
+        min_precip_threshold (float): The minimum precipitation threshold.
         top_n_events (int): The number of top events to include.
         check_every_n_hours (int): The interval in hours to check for storms.
         specific_dates (list, optional): Specific dates to include.
@@ -1089,7 +1111,7 @@ def new_collection(
 
     if create_new_items:
         event_items = create_items(
-            top_events.to_dict(orient="records"), storm_catalog, storm_duration=storm_duration, with_tb=with_tb
+            top_events.to_dict(orient="records"), storm_catalog, storm_duration=storm_duration, with_tb=with_tb, num_workers=num_workers
         )
         collection = storm_catalog.new_collection_from_items(collection_id, event_items)
 

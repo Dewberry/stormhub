@@ -1,6 +1,7 @@
 """AORC Item class."""
 
 import datetime
+import gc
 import json
 import logging
 import os
@@ -115,6 +116,16 @@ class AORCItem(Item):
         self._transposition_transform: Affine | None = None
         self._stats: dict | None = None
 
+    def clear_cached_data(self) -> None:
+        """Explicitly clear all cached data to free memory.
+        
+        Call this after processing is complete to release memory.
+        """
+        self._aorc_source_data = None
+        self._transpose = None
+        self._sum_aorc = None
+        gc.collect()
+
     def _register_extensions(self) -> None:
         """Register item extensions."""
         ProjectionExtension.add_to(self)
@@ -145,9 +156,19 @@ class AORCItem(Item):
         - adds ZARR files to assets if they don't exist already
         """
         if self._aorc_source_data is None:
-            s3_out = s3fs.S3FileSystem(anon=True)
+            # Increase connection pool and configure for better memory management
+            s3_out = s3fs.S3FileSystem(
+                anon=True,
+                config_kwargs={'max_pool_connections': 50}
+            )
             fileset = [s3fs.S3Map(root=aorc_path, s3=s3_out, check=False) for aorc_path in self.aorc_paths]
-            ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+            # Use auto chunks to align with Zarr storage, then rechunk if needed
+            ds = xr.open_mfdataset(
+                fileset, 
+                engine="zarr", 
+                chunks="auto",
+                consolidated=True
+            )
 
             transposition_geom_for_clip = self.transposition_domain_geometry
             bounds = transposition_geom_for_clip.bounds
@@ -158,7 +179,20 @@ class AORCItem(Item):
                 longitude=slice(bounds[0], bounds[2]),
                 latitude=slice(bounds[1], bounds[3]),
             )
-            self._aorc_source_data = subsection.rio.clip([transposition_geom_for_clip], drop=True, all_touched=True)
+            
+            # Clip to geometry
+            clipped = subsection.rio.clip([transposition_geom_for_clip], drop=True, all_touched=True)
+            
+            # Rechunk after loading to optimize memory usage for downstream operations
+            # This avoids the warning about misaligned chunks
+            self._aorc_source_data = clipped.chunk({'time': -1, 'latitude': 'auto', 'longitude': 'auto'})
+            
+            # Clean up to free memory
+            del ds
+            del subsection
+            del clipped
+            gc.collect()
+            
             for aorc_path in self.aorc_paths:
                 aorc_year = int(os.path.basename(aorc_path).replace(".zarr", ""))
                 aorc_start_datetime = datetime.datetime(
@@ -306,7 +340,11 @@ class AORCItem(Item):
 
 def valid_spaces_item(watershed: Item, transposition_region: Item, storm_duration: int = 72) -> Polygon:
     """Search a sample zarr dataset to identify valid spaces for transposition. datetime.datetime(1980, 5, 1) is used as a start time for the search."""
-    s3 = s3fs.S3FileSystem(anon=True)
+    # Increase connection pool to avoid warnings
+    s3 = s3fs.S3FileSystem(
+        anon=True,
+        config_kwargs={'max_pool_connections': 50}
+    )
     start_time = datetime.datetime(1980, 5, 1)
     sample_data = s3fs.S3Map(root=f"{NOAA_AORC_S3_BASE_URL}/{start_time.year}.zarr", s3=s3)
     ds = xr.open_dataset(sample_data, engine="zarr", chunks="auto", consolidated=True)
