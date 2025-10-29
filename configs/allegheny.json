@@ -1,0 +1,12 @@
+{
+   "watershed": {
+      "id": "allegheny",
+      "geometry_file": "/workspaces/stormhub/data/0_source/huc04/allegheny_.geojson",
+      "description": "Watershed for use in development of storm catalog"
+   },
+   "transposition_region": {
+      "id": "allegheny-transpo-area-v01",
+      "geometry_file": "/workspaces/stormhub/data/0_source/transposition/allegheny_transpo.geojson",
+      "description": "Transposition Domain developed by the ARC team"
+   }
+}
