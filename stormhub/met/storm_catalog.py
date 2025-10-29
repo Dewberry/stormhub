@@ -579,10 +579,10 @@ def storm_search(
     logging.debug("Statistics: %s", event_stats)
     logging.debug("Storm Date: %s", storm_start_date.strftime("%Y-%m-%dT%H"))
     logging.debug("Destination href: %s", catalog.spm.collection_item(collection_id, event_item.id))
-    
+
     # Clear cached data immediately to free memory
     event_item.clear_cached_data()
-    
+
     if return_item:
         if not os.path.exists(item_dir):
             os.makedirs(item_dir)
@@ -679,12 +679,12 @@ def multi_processor(
     # Process in smaller batches to avoid memory buildup
     # Use smaller batch size to limit memory: only queue num_workers tasks at a time
     batch_size = num_workers  # Changed from num_workers * 2 to just num_workers
-    
+
     with executor_class(max_workers=num_workers) as executor:
         for i in range(0, len(event_dates), batch_size):
-            batch = event_dates[i:i + batch_size]
+            batch = event_dates[i : i + batch_size]
             futures = [executor.submit(func, catalog, date, storm_duration) for date in batch]
-            
+
             # Write results as they complete
             with open(output_csv, "a", encoding="utf-8") as f:
                 for future in as_completed(futures):
@@ -694,17 +694,17 @@ def multi_processor(
                         f.write(storm_search_results_to_csv_line(r))
                         f.flush()  # Force write to disk
                         logging.info("%s processed (%d remaining)", r["storm_date"], count)
-                        
+
                         # Explicitly delete result to free memory
                         del r
-                        
+
                     except Exception as e:
                         if with_tb:
                             tb = traceback.format_exc()
                             logging.error("Error processing: %s\n%s", e, tb)
                         else:
                             logging.error("Error processing: %s", e)
-            
+
             # Clear futures list and force garbage collection between batches
             del futures
             del batch
@@ -1111,7 +1111,11 @@ def new_collection(
 
     if create_new_items:
         event_items = create_items(
-            top_events.to_dict(orient="records"), storm_catalog, storm_duration=storm_duration, with_tb=with_tb, num_workers=num_workers
+            top_events.to_dict(orient="records"),
+            storm_catalog,
+            storm_duration=storm_duration,
+            with_tb=with_tb,
+            num_workers=num_workers,
         )
         collection = storm_catalog.new_collection_from_items(collection_id, event_items)
 
