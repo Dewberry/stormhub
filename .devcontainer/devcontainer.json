@@ -1,0 +1,44 @@
+{
+	"name": "stormhub-devcontainer",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/mamba-org/devcontainer-features/micromamba:1": {
+			"envFile": "/tmp/env.yaml",
+			"envName": "stormhub-base",
+			"autoActivate": true,
+			"version": "1.5.6"
+		},
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "lts"
+		},
+		"ghcr.io/devcontainers/features/aws-cli:1": {
+			"version": "latest"
+		}
+	},
+	// "runArgs": [
+	// 	"--gpus",
+	// 	"all"
+	// ],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"charliermarsh.ruff",
+				"GitHub.copilot",
+				"ms-toolsai.jupyter"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/opt/conda/envs/stormhub-base/bin/python"
+			}
+		}
+	},
+	// be sure to have the workspace folder owned by vscode user
+	"postCreateCommand": "sudo chown -R vscode:vscode ${containerWorkspaceFolder}",
+	// start the dev container with the stormhub-base environment activated
+	// avoid dubious ownership of the workspace folder https://www.kenmuse.com/blog/avoiding-dubious-ownership-in-dev-containers/
+	"postStartCommand": "micromamba shell init --shell=bash && echo 'micromamba activate stormhub-base' >> ~/.bashrc && git config --global --add safe.directory ${containerWorkspaceFolder}"
+}
