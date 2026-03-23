@@ -316,7 +316,7 @@ def get_s3_zarr_data(
     start_dt: datetime,
     end_dt: datetime,
     variables_of_interest: List[str],
-    interp_nan_vals: bool = True,
+    interp_nan_vals: bool = False,
 ) -> xr.Dataset:
     """
     Read a multifile dataset from the specified S3 paths, filters it based on the area of interest (AOI) and the time range, extracts only the variables of interest and returns an xarray Dataset.
@@ -327,6 +327,7 @@ def get_s3_zarr_data(
         start_dt: The start datetime to filter the data.
         end_dt: The end datetime to filter the data.
         variables_of_interest: A list of variables to select from the dataset. If empty, all variables will be read.
+        interp_nan_vals: A boolean indicating whether to interpolate missing values in the dataset. If True, linear interpolation will be performed along both latitude and longitude dimensions, and the results will be averaged. Defaults to False.
     """
     s3 = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
