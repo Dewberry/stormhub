@@ -331,7 +331,10 @@ def get_s3_zarr_data(
     """
     s3 = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
-    ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+    try:
+        ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+    except ValueError:
+        ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=False)
 
     # Select only variables of interest
     if variables_of_interest:
@@ -462,6 +465,36 @@ def write_to_dss(
     dss.close()
 
 
+def fetch_aorc_data(
+    storm_start: datetime,
+    variable_duration_map: Dict[NOAADataVariable, int],
+    aoi_geometry_path: str,
+) -> xr.Dataset:
+    """
+    Fetch AORC data from S3 for a given storm event and area of interest.
+
+    Args:
+        storm_start: The start datetime of the storm.
+        variable_duration_map: A mapping of NOAA data variables to their respective durations in hours.
+        aoi_geometry_path: Path to the geopackage/geojson containing the area of interest geometry.
+
+    Returns:
+        xr.Dataset: The fetched AORC dataset clipped to the AOI and time range.
+    """
+    all_variables = list(variable_duration_map.keys())
+    min_start = storm_start + timedelta(hours=1)  # make exclusive
+    max_end = storm_start + timedelta(hours=max(variable_duration_map.values()))
+    aorc_paths = get_aorc_paths(min_start, max_end)
+    aoi_gdf = gpd.read_file(aoi_geometry_path)
+    voi_keys = [v.value for v in all_variables]
+
+    logging.info("Getting aorc data")
+    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, min_start, max_end, voi_keys)
+    logging.info("Successfully retrieved aorc data")
+
+    return aorc_data
+
+
 def noaa_zarr_to_dss(
     output_dss_path: str,
     aoi_geometry_gpkg_path: str,
@@ -470,19 +503,18 @@ def noaa_zarr_to_dss(
     variable_duration_map: Dict[NOAADataVariable, int],
     output_resolution_km: int,
 ):
-    """Given a geometry and datetime information about a storm, writes variables of interest from NOAA dataset to DSS."""
-    # arrange parameters
-    all_variables = list(variable_duration_map.keys())
-    min_start = storm_start + timedelta(hours=1)  # make exclusive
-    max_end = storm_start + timedelta(hours=max(variable_duration_map.values()))
-    aorc_paths = get_aorc_paths(min_start, max_end)
-    aoi_gdf = gpd.read_file(aoi_geometry_gpkg_path)
-    voi_keys = [v.value for v in all_variables]
+    """
+    Given a geometry and datetime information about a storm, writes AORC variables of interest from NOAA zarr dataset to DSS.
 
-    # get aorc data
-    logging.info("Getting aorc data")
-    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, min_start, max_end, voi_keys)
-    logging.info("Successfully retrieved aorc data")
+    Args:
+        output_dss_path: Path to the output DSS file.
+        aoi_geometry_gpkg_path: Path to the geopackage/geojson containing the area of interest geometry.
+        aoi_name: The name of the area of interest (AOI). Used in dss path construction.
+        storm_start: The start datetime of the storm.
+        variable_duration_map: A mapping of NOAA data variables to their respective durations in hours.
+        output_resolution_km: The spatial resolution for the output data in kilometers.
+    """
+    aorc_data = fetch_aorc_data(storm_start, variable_duration_map, aoi_geometry_gpkg_path)
 
     # write to dss
     for data_variable, duration in variable_duration_map.items():
