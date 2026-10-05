@@ -12,6 +12,7 @@ import geopandas as gpd
 from geopandas import GeoDataFrame
 import s3fs
 import xarray as xr
+from stormhub.hydro.usgs.usgs import clip_swe_to_geometry, prepare_swe_data
 from stormhub.met.consts import NOAA_AORC_S3_BASE_URL, KM_TO_M_CONVERSION_FACTOR, SHG_WKT
 import logging
 
@@ -165,36 +166,16 @@ def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.D
     if data_unit != "K":
         raise ValueError(f"Expected temperature data in Kelvin, got measurement unit of {data_unit} instead")
 
-    if output_unit != "K":
-        data_shape = data.shape
-        c_degrees_difference = np.full(data_shape, 273.15)
-        num_chunks = (data_shape[0] + chunk_size - 1) // chunk_size
-
-        converted_chunks = []
-
-        for i in range(num_chunks):
-            start = i * chunk_size
-            end = min((i + 1) * chunk_size, data_shape[0])
-
-            data_chunk = data.isel(time=slice(start, end))
-
-            if output_unit == "DEG C":
-                converted_chunk = data_chunk - c_degrees_difference[start:end]
-            elif output_unit == "DEG F":
-                c_data_chunk = data_chunk - c_degrees_difference[start:end]
-                scale_difference = np.full(c_data_chunk.shape, 9 / 5)
-                scale_data_chunk = c_data_chunk * scale_difference
-                f_difference = np.full(c_data_chunk.shape, 32)
-                converted_chunk = scale_data_chunk + f_difference
-            else:
-                raise ValueError(
-                    f"Temperature conversion only supported from Kelvin (K) to Celsius (DEG C) or Fahrenheit (DEG F); got output unit of {output_unit} instead"
-                )
-
-            converted_chunks.append(converted_chunk)
-
-        # Concatenate all converted chunks along the 'time' dimension
-        data = xr.concat(converted_chunks, dim="time")
+    if output_unit == "DEG C":
+        data = data - 273.15
+    elif output_unit == "DEG F":
+        data = (data - 273.15) * (9 / 5) + 32
+    elif output_unit != "K":
+        raise ValueError(
+            f"Temperature conversion only supported from Kelvin (K) to Celsius (DEG C) or Fahrenheit (DEG F); got output unit of {output_unit} instead"
+        )
+    
+    data.attrs["units"] = output_unit
 
     return data
 
@@ -316,7 +297,7 @@ def get_s3_zarr_data(
     start_dt: datetime,
     end_dt: datetime,
     variables_of_interest: List[str],
-    interp_nan_vals: bool = False,
+    interp_nan_temp_vals: bool = True,
 ) -> xr.Dataset:
     """
     Read a multifile dataset from the specified S3 paths, filters it based on the area of interest (AOI) and the time range, extracts only the variables of interest and returns an xarray Dataset.
@@ -327,11 +308,14 @@ def get_s3_zarr_data(
         start_dt: The start datetime to filter the data.
         end_dt: The end datetime to filter the data.
         variables_of_interest: A list of variables to select from the dataset. If empty, all variables will be read.
-        interp_nan_vals: A boolean indicating whether to interpolate missing values in the dataset. If True, linear interpolation will be performed along both latitude and longitude dimensions, and the results will be averaged. Defaults to False.
+        interp_nan_temp_vals: A boolean indicating whether to interpolate missing temperature values in the dataset. If True, linear interpolation will be performed along both latitude and longitude dimensions, and the results will be averaged. Defaults to True.
     """
     s3 = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
-    ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+    try:
+        ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+    except ValueError:
+        ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=False)
 
     # Select only variables of interest
     if variables_of_interest:
@@ -344,9 +328,18 @@ def get_s3_zarr_data(
     ds = ds.sel(
         time=slice(start_dt, end_dt), longitude=slice(bounds[0], bounds[2]), latitude=slice(bounds[1], bounds[3])
     )
-    if interp_nan_vals:
+    if interp_nan_temp_vals:
+        interp_logger = logging.getLogger("interp_logger")
+        if not interp_logger.handlers:
+            fh = logging.FileHandler("interpolation_missing_data.log")
+            fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+            interp_logger.addHandler(fh)
+            interp_logger.setLevel(logging.INFO)
         # Interpolate missing values for each variable
         for var in ds.data_vars:
+            if var != NOAADataVariable.TMP.value:
+                continue
+            
             data_var = ds[var]
 
             # Compute valid mask
@@ -364,7 +357,7 @@ def get_s3_zarr_data(
             interpolated_slices = []
             for i, t in enumerate(data_var.time.values):
                 if needs_interp[i]:
-                    logging.info(f"Missing data for var {var} at time {t}. Interpolating...")
+                    interp_logger.info(f"Missing data for var {var} at time {t}. Interpolating...")
                     slice_ = data_var.sel(time=t)
                     interpolated = interpolate_nan_values(slice_)
                     interpolated_slices.append(interpolated.expand_dims(time=[t]))
@@ -375,6 +368,9 @@ def get_s3_zarr_data(
                 data_var = data_var.combine_first(interpolated_ds)
 
             ds[var] = data_var
+
+    # Convert all data to float32 to save memory/storage 
+    ds = ds.astype({var: "float32" for var in ds.data_vars})
 
     # Final spatial clip
     ds = ds.rio.clip([aoi_shape], drop=True, all_touched=True)
@@ -462,6 +458,36 @@ def write_to_dss(
     dss.close()
 
 
+def fetch_aorc_data(
+    storm_start: datetime,
+    variable_duration_map: Dict[NOAADataVariable, int],
+    aoi_geometry_path: str,
+) -> xr.Dataset:
+    """
+    Fetch AORC data from S3 for a given storm event and area of interest.
+
+    Args:
+        storm_start: The start datetime of the storm.
+        variable_duration_map: A mapping of NOAA data variables to their respective durations in hours.
+        aoi_geometry_path: Path to the geopackage/geojson containing the area of interest geometry.
+
+    Returns:
+        xr.Dataset: The fetched AORC dataset clipped to the AOI and time range.
+    """
+    all_variables = list(variable_duration_map.keys())
+    min_start = storm_start + timedelta(hours=1)  # make exclusive
+    max_end = storm_start + timedelta(hours=max(variable_duration_map.values()))
+    aorc_paths = get_aorc_paths(min_start, max_end)
+    aoi_gdf = gpd.read_file(aoi_geometry_path)
+    voi_keys = [v.value for v in all_variables]
+
+    logging.info("Getting aorc data")
+    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, min_start, max_end, voi_keys)
+    logging.info("Successfully retrieved aorc data")
+
+    return aorc_data
+
+
 def noaa_zarr_to_dss(
     output_dss_path: str,
     aoi_geometry_gpkg_path: str,
@@ -470,19 +496,18 @@ def noaa_zarr_to_dss(
     variable_duration_map: Dict[NOAADataVariable, int],
     output_resolution_km: int,
 ):
-    """Given a geometry and datetime information about a storm, writes variables of interest from NOAA dataset to DSS."""
-    # arrange parameters
-    all_variables = list(variable_duration_map.keys())
-    min_start = storm_start + timedelta(hours=1)  # make exclusive
-    max_end = storm_start + timedelta(hours=max(variable_duration_map.values()))
-    aorc_paths = get_aorc_paths(min_start, max_end)
-    aoi_gdf = gpd.read_file(aoi_geometry_gpkg_path)
-    voi_keys = [v.value for v in all_variables]
+    """
+    Given a geometry and datetime information about a storm, writes AORC variables of interest from NOAA zarr dataset to DSS.
 
-    # get aorc data
-    logging.info("Getting aorc data")
-    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, min_start, max_end, voi_keys)
-    logging.info("Successfully retrieved aorc data")
+    Args:
+        output_dss_path: Path to the output DSS file.
+        aoi_geometry_gpkg_path: Path to the geopackage/geojson containing the area of interest geometry.
+        aoi_name: The name of the area of interest (AOI). Used in dss path construction.
+        storm_start: The start datetime of the storm.
+        variable_duration_map: A mapping of NOAA data variables to their respective durations in hours.
+        output_resolution_km: The spatial resolution for the output data in kilometers.
+    """
+    aorc_data = fetch_aorc_data(storm_start, variable_duration_map, aoi_geometry_gpkg_path)
 
     # write to dss
     for data_variable, duration in variable_duration_map.items():
@@ -505,3 +530,29 @@ def noaa_zarr_to_dss(
             output_resolution_km=output_resolution_km,
             data_version="AORC",
         )
+
+def swe_to_dss(output_dss_path: str, aoi_geometry_gpkg_path: str, aoi_name: str, start_date: datetime, end_date: datetime, swe_zarr_path: str, output_resolution_km: int = 1, swe_var_name: str = "SWE", data_source: str = "UA_SWE", crs = "EPSG:4326"):
+    """
+    Write SWE (Snow Water Equivalent) data from a Zarr store to a DSS file for a given area of interest.
+
+    Args:
+        output_dss_path: Path to the output DSS file.
+        aoi_geometry_gpkg_path: Path to the geopackage/geojson containing the area of interest geometry.
+        aoi_name: The name of the area of interest (AOI). Used in dss path construction.
+        start_date: The start datetime for the SWE data.
+        end_date: The end datetime for the SWE data.
+        swe_zarr_path: Path to the Zarr store containing SWE data.
+        output_resolution_km: The spatial resolution for the output data in kilometers.
+        swe_var_name: The name of the SWE variable in the Zarr store.
+        data_source: Represents where the data comes from. Used in dss path construction.
+        crs: The Coordinate Reference System of the input geometry.
+    """
+    
+    snow_ds = xr.open_zarr(swe_zarr_path, consolidated=True)
+    swe_da = snow_ds[swe_var_name]
+    transpo_region = gpd.read_file(aoi_geometry_gpkg_path)
+    transpo_polygon = transpo_region.geometry.values[0]
+    
+    prepared_swe_data = prepare_swe_data(swe_da, start_date, end_date)
+    clipped_swe_data = clip_swe_to_geometry(prepared_swe_data, transpo_polygon, crs = crs)
+    write_to_dss(output_dss_path, clipped_swe_data, aoi_name, swe_var_name, MeasurementType.INSTVAL, "mm", output_resolution_km, data_source)
