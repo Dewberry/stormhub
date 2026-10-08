@@ -10,9 +10,11 @@ import numpy as np
 from pandas import Timestamp
 import geopandas as gpd
 from geopandas import GeoDataFrame
+import rasterio
 import s3fs
 import xarray as xr
 from stormhub.met.consts import NOAA_AORC_S3_BASE_URL, KM_TO_M_CONVERSION_FACTOR, SHG_WKT
+from stormhub.utils import repair_polygon_fill_holes
 import logging
 
 
@@ -333,6 +335,13 @@ def get_s3_zarr_data(
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
     ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
 
+    # Assert geographic CRS since "longitude" and "latitude" are used.
+    if not ds.rio.crs.is_geographic:
+        raise ValueError(f"Raw data CRS must be geographic, but got: {ds.rio.crs}")
+    # Assert one geometry record, since .iloc[0] is used (only the first geometry is used).
+    if len(aoi_gdf.geometry) != 1:
+        raise ValueError(f"AOI geometry has {len(aoi_gdf.geometry)} parts, expected 1.")
+
     # Select only variables of interest
     if variables_of_interest:
         ds = ds[variables_of_interest]
@@ -340,6 +349,8 @@ def get_s3_zarr_data(
     # Reproject AOI and clip spatially
     aoi_gdf = aoi_gdf.to_crs(ds.rio.crs)
     aoi_shape = aoi_gdf.geometry.iloc[0]
+    aoi_shape = repair_polygon_fill_holes(aoi_shape)
+
     bounds = aoi_shape.bounds
     ds = ds.sel(
         time=slice(start_dt, end_dt), longitude=slice(bounds[0], bounds[2]), latitude=slice(bounds[1], bounds[3])
@@ -395,6 +406,14 @@ def write_to_dss(
     """
     Write geospatial data to a DSS file while transforming the data to fit DSS conventions.
 
+    **Nearest neighbor resampling is used.**
+    **If it is desired to change this to a resampling method that involves interpolation**:
+        The pre-processes upstream of this function would need to be updated to
+        avoid tightly masking the raw pixels to the AOI polygon prior to sending
+        the grid into this function, so that this function could access nearby
+        cells, even at the perimeter. Then the tight mask would need to be
+        applied after resampling.
+
     Args:
         output_dss_path: Path to the output DSS file
         zarr_data: An xarray dataset containing the geospatial data to be written to the DSS file
@@ -404,6 +423,12 @@ def write_to_dss(
         output_resolution_km: The resolution for the data in km
         data_version: Represents where the data comes from (e.g. "AORC")
     """
+    resamp_method = rasterio.enums.Resampling.nearest
+    if resamp_method != rasterio.enums.Resampling.nearest:
+        raise ValueError(
+            f"Only nearest neighbor resampling is supported (Resampling.nearest), but got {resamp_method}."
+        )
+
     dss = HecDss(output_dss_path)
     output_resolution_m = output_resolution_km * KM_TO_M_CONVERSION_FACTOR
 
@@ -411,7 +436,7 @@ def write_to_dss(
     times = data.time.values
 
     if len(times) <= 144:
-        data: xr.DataArray = data.rio.reproject(SHG_WKT, resolution=output_resolution_m)
+        data: xr.DataArray = data.rio.reproject(SHG_WKT, resolution=output_resolution_m, resampling=resamp_method)
     else:
         # For larger datasets, chunking is used to avoid memory issues
         logging.info(f"Chunking dataset for reprojection")
@@ -421,7 +446,7 @@ def write_to_dss(
         for i in range(0, len(times), time_chunk_size):
             chunk_times = times[i : i + time_chunk_size]
             chunk = data.sel(time=chunk_times)
-            chunk = chunk.rio.reproject(SHG_WKT, resolution=output_resolution_m)
+            chunk = chunk.rio.reproject(SHG_WKT, resolution=output_resolution_m, resampling=resamp_method)
             reprojected_chunks.append(chunk)
 
         data = xr.concat(reprojected_chunks, dim="time")
