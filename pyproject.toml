@@ -23,6 +23,8 @@ classifiers = [
 dependencies = [
     "fiona==1.9.6",
     "geopandas==1.0.1",
+    # For supporting export to NetCDF via engine="h5netcdf"
+    "h5netcdf",
     "matplotlib==3.9.0",
     "pystac==1.10.0",
     "rasterio==1.3.10",
