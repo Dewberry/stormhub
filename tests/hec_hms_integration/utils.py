@@ -5,7 +5,6 @@ Common argument ``model: Path`` refers to the directory of a HMS project.
 """
 
 import logging
-import os
 import re
 import subprocess
 from datetime import datetime
@@ -14,11 +13,17 @@ from zipfile import ZipFile
 
 import geopandas as gpd
 import numpy as np
+import xarray as xr
 from conftest import Scalar, ScalarComp
 from hec_hms_integration import constants as c
 from hecdss import HecDss
 
-from stormhub.met.zarr_to_dss import NOAADataVariable, noaa_zarr_to_dss
+from stormhub.met.consts import DSS_TIME_DIMENSION
+from stormhub.met.zarr_to_dss import (
+    NOAADataVariable,
+    noaa_zarr_to_dss,
+    write_to_dss,
+)
 
 
 def extract_model(target_dir: Path) -> Path:
@@ -77,7 +82,38 @@ def write_stormhub_dss(model: Path) -> None:
             NOAADataVariable.APCP: c.STORMHUB_DURATION_HOURS,
             NOAADataVariable.TMP: c.STORMHUB_DURATION_HOURS,
         },
+        add_nc=True,
     )
+
+
+def stormhub_netcdf_to_stormhub_dss(
+    netcdf_path: Path,
+    output_dss_path: Path,
+    aoi_name: str,
+    output_resolution_km: int,
+) -> None:
+    """Write SHG NetCDF precipitation and temperature grids to DSS with hecdss."""
+    with xr.open_dataset(netcdf_path, engine="h5netcdf") as source:
+        data = source.load()
+
+    crs_wkt = data["crs"].attrs["crs_wkt"]
+    for var in (NOAADataVariable.APCP, NOAADataVariable.TMP):
+        variable_data = data[var.dss_variable_title]
+        nc_time_dimension = var.netcdf_time_dimension
+        if nc_time_dimension in variable_data.dims:
+            variable_data = variable_data.rename({nc_time_dimension: DSS_TIME_DIMENSION})
+        variable_data = variable_data.rio.set_spatial_dims(x_dim="x", y_dim="y").rio.write_crs(crs_wkt)
+        write_to_dss(
+            output_dss_path=str(output_dss_path),
+            data=variable_data,
+            aoi_name=aoi_name,
+            param_name=var.dss_variable_title,
+            param_measurement_type=var.measurement_type,
+            param_measurement_unit=var.measurement_unit,
+            output_resolution_km=output_resolution_km,
+            data_version="AORC",
+            data_already_shg=True,
+        )
 
 
 def configure_model_to_use_stormhub_met_forcing(model: Path, resolution_km: float) -> None:

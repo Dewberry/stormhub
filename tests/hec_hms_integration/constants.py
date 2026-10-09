@@ -22,9 +22,6 @@ HMS_HOME = Path.home() / ".local/share/hec-hms" / HMS_VERSION
 HMS_PARAMETERS_TO_COMPARE = ["FLOW", "PRECIP-INC"]
 # Choose a list of np.nan* methods, for example "mean", "min", "max", "sum", etc. E.g. providing "mean" will cause it to use np.nanmean.
 NP_STATS_METHODS_TO_COMPARE = ["mean"]
-# Relative tolerance is decimal, not percent.
-TOLERANCE_REL: float = 0.30
-TOLERANCE_ABS: int | float = 500
 # Output resolution for stormhub meteorological forcing data.
 # Original Punxsutawney HMS model used coarser grid, we use 1km for ``stormhub`` AORC test.
 PIXEL_RESOLUTION_M = 1000
