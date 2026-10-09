@@ -1,0 +1,36 @@
+# Secrets
+.env
+**/.env
+**/.env.*
+
+# Git
+.git/
+**/.git/
+
+# Temp files
+tmp/
+**/tmp/
+**/*.tmp
+
+# Logs
+logs/
+**/logs/
+**/*.log
+
+# Misc cache dirs e.g. .ruff_cache, .pytest_cache
+**/*_cache/
+**/.*_cache/
+
+# Python artifacts
+.venv/
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/dist/
+**/build/
+**/*.whl
+**/*.egg
+**/*.egg-info/
+
+# Dockerfiles
+**/Dockerfile*
