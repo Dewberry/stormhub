@@ -1,0 +1,17 @@
+FROM python:3.12-slim-bookworm
+
+# e.g. 4.14
+ARG HMS_VERSION
+
+RUN apt update && apt upgrade -y && apt install -y curl
+
+# Install HMS before copying the package, for better build caching
+WORKDIR /tmp/install-hms
+COPY ./tests/hec_hms_integration/install_hms_${HMS_VERSION}.sh .
+RUN ./install_hms_${HMS_VERSION}.sh
+
+# Install stormhub
+# `numpy<2` is needed for now to avoid a geopandas error
+WORKDIR /app/stormhub
+COPY . .
+RUN python -m pip install "numpy<2" ".[dev]"
