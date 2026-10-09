@@ -1224,10 +1224,10 @@ def get_events_collection(catalog: pystac.Catalog):
 def get_transposition_item(catalog: pystac.Catalog, use_valid_region: bool = False):
     """Find transposition region item from given Catalog."""
     for item in catalog.get_all_items():
-        if "transpo" in item.id:
-            if use_valid_region and "valid" in item.id:
+        if "transpo" in item.id.lower():
+            if use_valid_region and "valid" in item.id.lower():
                 return item
-            elif not use_valid_region and "valid" not in item.id:
+            elif not use_valid_region and "valid" not in item.id.lower():
                 return item
 
     raise ValueError(f"Could not find transposition region item in catalog: {catalog.id}.")
