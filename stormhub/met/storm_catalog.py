@@ -26,8 +26,15 @@ from stormhub.hydro_domain import HydroDomain
 from stormhub.logger import initialize_logger
 from stormhub.met.analysis import StormAnalyzer
 from stormhub.met.aorc.aorc import AORCItem, valid_spaces_item
+from stormhub.met.consts import (
+    DSS_ASSET_DESCRIPTION,
+    DSS_ASSET_MEDIA_TYPE,
+    DSS_ASSET_ROLES,
+    NETCDF_ASSET_DESCRIPTION,
+    NETCDF_ASSET_MEDIA_TYPE,
+    NETCDF_ASSET_ROLES,
+)
 from stormhub.met.zarr_to_dss import (
-    fetch_aorc_data,
     get_aorc_paths,
     get_s3_zarr_data,
     noaa_zarr_to_dss,
@@ -1233,17 +1240,19 @@ def add_storm_dss_files(
     variable_duration_map: Dict[NOAADataVariable, int] = None,
     dss_output_dir: str = None,
     output_resolution_km: int = 1,
+    add_nc: bool = False,
 ):
     """
-    Add dss files containing meteorological data to all storm items in events collection.
+    Write new DSS files and add associated catalog assets to all storm items in the events collection. Optionally, also write equivalent NetCDF files and add associated assets.
 
     Args:
         catalog (Union[str | Catalog]): The storm catalog or path to the catalog file.
         aoi_name (str, optional): Optional aoi name for part B of dss file. If None then the catalog ID is used.
         use_valid_region (bool, optional): If True, the gridded DSS data will be confined to the valid transposition region. If False, the the data uses the entire transposition region. Defaults to False.
         variable_duration_map (Dict[NOAADataVariable, int], Optional): Optional variable map to include multiple variables and/or different durations for dss creation. If None is given, only precipitation is used at the duration between the storm items start and end time.
-        dss_output_dir (str, optional): Optional output directory for dss files. If None, dss files are saved in the same directory as the associated storm item.
-
+        dss_output_dir (str, optional): Optional output directory for DSS and NetCDF files. If None, files are saved in the same directory as the associated storm item.
+        output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). Default: 1.
+        add_nc (bool, optional): If True, export a HMS/Vortex-compliant SHG NetCDF file in addition to the DSS file. Default: False.
     """
     if isinstance(catalog, str):
         catalog = pystac.read_file(catalog)
@@ -1255,6 +1264,7 @@ def add_storm_dss_files(
     if aoi_name is None:
         aoi_name = catalog.id
 
+    nc_files = []
     for item in events_collection.get_items():
         try:
             if dss_output_dir:
@@ -1279,18 +1289,25 @@ def add_storm_dss_files(
 
                 variable_duration_map = {NOAADataVariable.APCP: duration_hours}
 
-            noaa_zarr_to_dss(
-                dss_output_path, transpo_href, aoi_name, start_date_dt, variable_duration_map, output_resolution_km
+            nc_written = noaa_zarr_to_dss(
+                dss_output_path,
+                transpo_href,
+                aoi_name,
+                start_date_dt,
+                variable_duration_map,
+                output_resolution_km,
+                add_nc=add_nc,
             )
-
+            if nc_written is not None:
+                nc_files.append(nc_written)
             item.add_asset(
                 dss_fn,
                 Asset(
                     dss_output_path,
                     dss_fn,
-                    description="DSS file containing meteorological data for storm period.",
-                    media_type="application/x-dss",
-                    roles="data",
+                    description=DSS_ASSET_DESCRIPTION,
+                    media_type=DSS_ASSET_MEDIA_TYPE,
+                    roles=DSS_ASSET_ROLES,
                 ),
             )
             item.save_object()
@@ -1298,148 +1315,80 @@ def add_storm_dss_files(
         except Exception as e:
             logging.error(f"Could not create dss file for item: {item.id} with error: {e}")
 
+    if add_nc:
+        add_existing_storm_nc_files_to_collection(catalog, nc_files)
 
-def make_nc_vortex_compliant(data: xr.Dataset, variables: List[NOAADataVariable]) -> xr.Dataset:
+
+def add_existing_storm_nc_files_to_collection(catalog: pystac.Catalog, nc_files: List[str | Path]) -> None:
     """
-    Transform an AORC xarray Dataset into a CF-1.9 compliant NetCDF compatible with HEC-Vortex.
+    For every forcing DSS asset in the events collection, add the equivalent NetCDF sidecar file, matching existing convention for the DSS href.
 
-    Handles CRS promotion, grid_mapping attributes, variable renaming, CF standard attributes,
-    and time bounds creation.
+    Validate that there are no mismatches between the list of DSS files and list of NetCDF files and that the NetCDF files do exist as sidecars.
 
     Args:
-        data (xr.Dataset): Dataset with spatial_ref coordinate (from rioxarray reproject).
-        variables (List[NOAADataVariable]): The NOAA data variables present in the dataset.
-
-    Returns:
-        xr.Dataset: CF-compliant dataset ready for NetCDF export.
-    """
-
-    # Rename spatial_ref to CF-compliant grid mapping name and move to data var
-    data = data.rename({"spatial_ref": "crs"})
-    data = data.reset_coords("crs")
-
-    # Add grid_mapping to data variables
-    for var in data.data_vars:
-        data[var].attrs["grid_mapping"] = "crs"
-
-    # Rename variables to standard names
-    data = data.rename({v.value: v.dss_variable_title for v in variables})
-
-    # Add CF attributes for precipitation
-    if "PRECIPITATION" in data.data_vars:
-        data["PRECIPITATION"].attrs.update({
-            "standard_name": "precipitation_amount",
-            "cell_methods": "time: sum",
-        })
-
-    # Add CF attributes for temperature
-    if "TEMPERATURE" in data.data_vars:
-        data["TEMPERATURE"].attrs.update({
-            "standard_name": "air_temperature",
-        })
-
-    # Time attributes
-    data["time"].attrs = {
-        "standard_name": "time",
-        "long_name": "time",
-        "axis": "T",
-        "bounds": "time_bnds",
-    }
-
-    # Time bounds
-    time_bnds = np.array([[t - np.timedelta64(1, "h"), t] for t in data["time"].values])
-    data["time_bnds"] = xr.DataArray(
-        time_bnds,
-        dims=["time", "nv"],
-        attrs={"long_name": "time bounds"},
-    )
-
-    data.attrs.update({"Conventions": "CF-1.9"})
-
-    return data
-
-
-def add_storm_nc_files(
-    catalog: pystac.catalog,
-    aoi_name: str = None,
-    use_valid_region: bool = False,
-    variable_duration_map: Dict[NOAADataVariable, int] = None,
-    nc_output_dir: str = None,
-):
-    """
-    Add CF-compliant NetCDF files containing meteorological data to all storm items in events collection.
-
-    Args:
-        catalog (Union[str | Catalog]): The storm catalog or path to the catalog file.
-        aoi_name (str, optional): Optional aoi name. If None then the catalog ID is used.
-        use_valid_region (bool, optional): If True, data will be confined to the valid transposition region. Defaults to False.
-        variable_duration_map (Dict[NOAADataVariable, int], optional): Variable map to include multiple variables and/or different durations. If None, only precipitation is used at the duration between the storm items start and end time.
-        nc_output_dir (str, optional): Optional output directory for NetCDF files. If None, files are saved in the same directory as the associated storm item.
+        catalog (Union[str | pystac.Catalog]): The storm catalog or path to the catalog file.
+        nc_files (list[str | Path]): NetCDF (each call to ``noaa_zarr_to_dss`` returns one of these when ``add_nc=True``).
     """
     if isinstance(catalog, str):
         catalog = pystac.read_file(catalog)
 
     events_collection = get_events_collection(catalog)
-    transpo_item = get_transposition_item(catalog, use_valid_region)
-    transpo_href = transpo_item.get_self_href()
-
-    if aoi_name is None:
-        aoi_name = catalog.id
-
+    dss_files = []
+    items_ncpaths = []
     for item in events_collection.get_items():
-        try:
-            if nc_output_dir:
-                item_dir = os.path.abspath(nc_output_dir)
-                os.makedirs(item_dir, exist_ok=True)
-            else:
-                item_href = item.get_self_href()
-                item_dir = os.path.dirname(item_href)
-
-            full_start_date = item.properties["start_datetime"]
-            start_date_dt = datetime.strptime(full_start_date, "%Y-%m-%dT%H:%M:%SZ")
-            start_date = start_date_dt.strftime("%Y%m%d")
-
-            nc_fn = f"{start_date}.nc"
-            nc_output_path = os.path.join(item_dir, nc_fn)
-
-            if variable_duration_map is None:
-                full_end_date = item.properties["end_datetime"]
-                end_date_dt = datetime.strptime(full_end_date, "%Y-%m-%dT%H:%M:%SZ")
-                time_difference = end_date_dt - start_date_dt
-                duration_hours = int(time_difference.total_seconds() / 3600)
-                item_variable_duration_map = {NOAADataVariable.APCP: duration_hours}
-            else:
-                item_variable_duration_map = variable_duration_map
-
-            all_variables = list(item_variable_duration_map.keys())
-            aorc_data = fetch_aorc_data(start_date_dt, item_variable_duration_map, transpo_href)
-
-            data = aorc_data.astype({var: "float32" for var in aorc_data.data_vars})
-            data = data.rio.reproject("EPSG:5070", resolution=None)
-            data = data.rio.write_crs("EPSG:5070")
-
-            data = make_nc_vortex_compliant(data, all_variables)
-
-            encoding = {var: {"zlib": True, "complevel": 2} for var in data.data_vars}
-            encoding["time"] = {"units": "hours since 1970-01-01"}
-            encoding["time_bnds"] = {"units": "hours since 1970-01-01"}
-            data.to_netcdf(nc_output_path, engine="h5netcdf", encoding=encoding)
-
-            item.add_asset(
-                nc_fn,
-                Asset(
-                    nc_output_path,
-                    nc_fn,
-                    description="NetCDF file containing meteorological data for storm period.",
-                    media_type="application/netcdf",
-                    roles=["data"],
-                ),
+        for asset in item.assets.values():
+            if asset.media_type != DSS_ASSET_MEDIA_TYPE:
+                continue
+            href_separator = "\\" if "\\" in asset.href else "/"
+            href_directory, dss_filename = (
+                asset.href.rsplit(href_separator, 1) if href_separator in asset.href else ("", asset.href)
             )
-            item.save_object()
-            logging.info(f"Successfully saved storm NetCDF file to: {nc_output_path}")
-            
-        except Exception as e:
-            logging.error(f"Could not create NetCDF file for item: {item.id} with error: {e}")
+            nc_filename = Path(dss_filename).with_suffix(".nc").name
+            nc_href = f"{href_directory}{href_separator}{nc_filename}" if href_directory else nc_filename
+
+            if asset.href.startswith("s3://"):
+                dss_path = Path(item.get_self_href()).parent / dss_filename
+            else:
+                local_href = asset.href.replace("\\", os.sep)
+                dss_path = Path(local_href)
+                if not dss_path.is_absolute():
+                    dss_path = Path(item.get_self_href()).parent / dss_path
+            dss_path = dss_path.resolve()
+
+            dss_files.append(dss_path)
+            items_ncpaths.append((item, dss_path, nc_href))
+
+    dss_nc_files = {d.with_suffix(".nc") for d in dss_files}
+    raw_nc_paths = {Path(nc).resolve() for nc in nc_files}
+    missing_nc_files = dss_nc_files - raw_nc_paths
+    unassociated_nc_files = raw_nc_paths - dss_nc_files
+    if missing_nc_files or unassociated_nc_files:
+        raise ValueError(
+            f"NetCDF outputs and forcing DSS assets must be in the same directory and match basenames. Missing NetCDF paths: {missing_nc_files}. Unassociated NetCDF paths: {unassociated_nc_files}."
+        )
+
+    errors: list[Exception] = []
+    for item, dss_path, nc_href in items_ncpaths:
+        nc_path = dss_path.with_suffix(".nc")
+        if not nc_path.is_file():
+            errors.append(FileNotFoundError(nc_path))
+            continue
+        nc_fn = nc_path.name
+        item.add_asset(
+            nc_fn,
+            Asset(
+                nc_href,
+                nc_fn,
+                description=NETCDF_ASSET_DESCRIPTION,
+                media_type=NETCDF_ASSET_MEDIA_TYPE,
+                roles=NETCDF_ASSET_ROLES,
+            ),
+        )
+        item.save_object()
+        logging.info("Added storm NetCDF asset to item %s: %s", item.id, nc_path)
+    if errors:
+        raise RuntimeError(errors)
+
 
 def avg_annual_max_grids(zarr_path: str, normal_precip_grid_path: str = "normalized_precip.tif"):
     """Calculate the average of all annual maximum grids in the Zarr store and saves the result as a GeoTIFF."""

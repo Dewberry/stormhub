@@ -12,3 +12,16 @@ SHG_WKT = 'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_version",GEOGCS["
 """CRS definition, based on EPSG:5070"""
 
 KM_TO_M_CONVERSION_FACTOR = 1000
+
+DSS_TIME_DIMENSION = "time"
+NETCDF_TIME_BOUNDS = "time_bnds"
+NETCDF_TIME_DIMENSION_PREFIX = "time_"
+NETCDF_TIME_BOUNDS_SUFFIX = "_bnds"
+
+DSS_ASSET_DESCRIPTION = "DSS file containing meteorological data for storm period."
+DSS_ASSET_MEDIA_TYPE = "application/x-dss"
+DSS_ASSET_ROLES = ["data"]
+
+NETCDF_ASSET_DESCRIPTION = "NetCDF file containing meteorological data for storm period."
+NETCDF_ASSET_MEDIA_TYPE = "application/netcdf"
+NETCDF_ASSET_ROLES = ["data"]
