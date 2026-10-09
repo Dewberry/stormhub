@@ -12,6 +12,8 @@ from shapely import Polygon
 from shapely.affinity import translate
 from shapely.geometry import shape
 
+from stormhub.utils import repair_polygon_fill_holes
+
 
 class Transpose:
     """
@@ -238,14 +240,19 @@ class Transpose:
     @property
     def valid_spaces_polygon(self) -> Polygon:
         """
-        Convert the valid spaces boolean array to a polygon.
+        Convert the valid spaces boolean array to a polygon. Self-intersections are repaired and holes are filled via ``repair_polygon_fill_holes``.
 
         Returns
         -------
             Polygon: The valid spaces polygon.
         """
         if self._valid_spaces_polygon is None:
-            self._valid_spaces_polygon = self._array_to_polygon(self.valid_spaces)
+            raw_polygon = self._array_to_polygon(self.valid_spaces)
+            repaired_polygon = repair_polygon_fill_holes(raw_polygon)
+            if not isinstance(repaired_polygon, Polygon):
+                raise TypeError(f"Expected geometry type 'Polygon' but got {repaired_polygon.geom_type}")
+            self._valid_spaces_polygon = repaired_polygon
+
         return self._valid_spaces_polygon
 
     def max_transpose(self, func: Callable[[np.ndarray], Any] | None = None) -> tuple[Polygon, Affine, Any | None]:

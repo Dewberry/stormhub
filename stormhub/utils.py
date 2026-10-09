@@ -8,7 +8,8 @@ from typing import List
 import os
 
 from pystac import Link, Collection
-from shapely.geometry import mapping, shape
+from shapely import make_valid
+from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 
 STORMHUB_REF_LINK = Link(
     rel="Processing",
@@ -159,3 +160,47 @@ def file_table(data: dict, col1: str, col2: str):
     for k, v in data.items():
         table.append({col1: k, col2: v})
     return table
+
+
+def repair_polygon_fill_holes(geom: Polygon | MultiPolygon) -> Polygon | MultiPolygon:
+    """Repair a Polygon or MultiPolygon by filling self-intersection holes (e.g. bowties) and true holes (inner rings). Return a Polygon or MultiPolygon.
+
+    Shapely make_valid() fixes self-intersection / bowtie "holes" in the exterior ring,
+    and must be called *before* discarding the true (inner ring) holes.
+
+    Shapely make_valid() can return a Polygon, MultiPolygon, or GeometryCollection
+    depending on the issues it encountered, so we need to inspect its returned object
+    and discard non-polygon components of its returned object, and reconstruct either a
+    single Polygon or a single MultiPolygon.
+
+    During this loop, we keep only the ``part.exterior`` of each part to ensure
+    that we discard inner rings, which are true holes.
+    """
+    if geom.geom_type not in ("Polygon", "MultiPolygon"):
+        raise TypeError(f"Expected input AOI to be Polygon or MultiPolygon, but got: {geom.geom_type}")
+
+    geom = make_valid(geom)
+
+    polys = []
+    parts_to_check = [geom]
+    while parts_to_check:
+        part = parts_to_check.pop()
+        if part.geom_type == "Polygon":
+            polys.append(Polygon(part.exterior))
+        elif part.geom_type in ("MultiPolygon", "GeometryCollection"):
+            parts_to_check.extend(part.geoms)
+        else:
+            logging.warning(
+                f"in repair_polygon_fill_holes, discarding geometry of type {part.geom_type} after shapely make_valid()"
+            )
+
+    if not polys:
+        raise TypeError(f"Expected polygonal area after make_valid, got: {geom.geom_type}.")
+
+    geom = polys[0] if len(polys) == 1 else MultiPolygon(polys)
+
+    if not isinstance(geom, (Polygon, MultiPolygon)):
+        raise TypeError(f"Unexpected final geometry type after repairing: {geom.geom_type}.")
+    if not geom.is_valid:
+        raise ValueError(f"Final geometry is not valid after repa")
+    return geom
