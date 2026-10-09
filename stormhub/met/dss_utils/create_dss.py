@@ -41,6 +41,8 @@ def process_storm_events(storms: dict, dss_dir: str, aoi_path: str, aoi_name: st
             aoi_geometry_gpkg_path=aoi_path,
             aoi_name=aoi_name,
             storm_start=storm_start_datetime,
+            # NOTE: Unequal slice durations require separate NetCDF time axes. A shared axis pads precipitation, which HMS/Vortex may import as extra DSS records.
+            # See notes in function ``write_shg_netcdf_vortex_compliant_variable_durations`` for details.
             variable_duration_map={
                 NOAADataVariable.TMP: 864,
                 NOAADataVariable.APCP: 72,
