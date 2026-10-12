@@ -2,14 +2,21 @@
 
 import json
 import logging
+import math
 import socket
 from datetime import datetime, timedelta
 from typing import List
 import os
 
+from affine import Affine
 from pystac import Link, Collection
+import rasterio
 from shapely import make_valid
 from shapely.geometry import MultiPolygon, Polygon, mapping, shape
+import xarray as xr
+
+from stormhub.met.consts import SHG_WKT
+
 
 STORMHUB_REF_LINK = Link(
     rel="Processing",
@@ -204,3 +211,46 @@ def repair_polygon_fill_holes(geom: Polygon | MultiPolygon) -> Polygon | MultiPo
     if not geom.is_valid:
         raise ValueError(f"Final geometry is not valid after repairing: {geom.geom_type}")
     return geom
+
+
+def get_shg_reprojection_kwargs(
+    data: xr.Dataset, output_resolution_m: float, resamp_method: rasterio.enums.Resampling
+) -> tuple[dict, int, int]:
+    """Build a kwargs dict for rasterio reproject() to SHG. Handles validation, CRS transformation, and snapping to SHG grid.
+
+    SHG coordinates must be snapped to an integer multiple.
+    Also explicitly returns lower_x and lower_y for later SHG writing.
+    """
+    if round(output_resolution_m) != output_resolution_m:
+        raise ValueError(
+            f"output_resolution_m must be an integer or a float that represents an integer, but got: {output_resolution_m}"
+        )
+
+    # Raw bounds in SHG CRS (not yet snapped to SHG grid).
+    dst_xmin, dst_ymin, dst_xmax, dst_ymax = rasterio.warp.transform_bounds(data.rio.crs, SHG_WKT, *data.rio.bounds())
+
+    # Finding the closest integer index, growing in each direction as needed.
+    lower_x = int(math.floor(dst_xmin / output_resolution_m))
+    lower_y = int(math.floor(dst_ymin / output_resolution_m))
+    upper_x = int(math.ceil(dst_xmax / output_resolution_m))
+    upper_y = int(math.ceil(dst_ymax / output_resolution_m))
+
+    # Converting those integer indexes to global coordinates on SHG grid system.
+    snapped_xmin = lower_x * output_resolution_m
+    snapped_ymin = lower_y * output_resolution_m
+    snapped_xmax = upper_x * output_resolution_m
+    snapped_ymax = upper_y * output_resolution_m
+
+    # array width = dx divided by resolution
+    dst_width = int(round((snapped_xmax - snapped_xmin) / output_resolution_m))
+    # array height = dy divided by resolution
+    dst_height = int(round((snapped_ymax - snapped_ymin) / output_resolution_m))
+
+    dst_transform = Affine(output_resolution_m, 0.0, snapped_xmin, 0.0, -output_resolution_m, snapped_ymax)
+    reproject_kwargs = {
+        "dst_crs": SHG_WKT,
+        "shape": (dst_height, dst_width),
+        "transform": dst_transform,
+        "resampling": resamp_method,
+    }
+    return reproject_kwargs, lower_x, lower_y
