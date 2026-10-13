@@ -55,6 +55,7 @@ END_DATETIME = datetime.datetime.combine(END_DATE, END_TIME)
 STORMHUB_START_DATETIME = START_DATETIME - datetime.timedelta(hours=1)
 STORMHUB_DURATION_HOURS = int((END_DATETIME - START_DATETIME).total_seconds() / 3600) + 1
 DATA_MET_FORCING_STORMHUB = "data/met_forcing_stormhub.dss"  # Filename for edited model
+DATA_MET_FORCING_STORMHUB_NETCDF = "data/met_forcing_stormhub.nc"  # Written by stormhub beside the DSS file
 
 # Misc:
 CONFIG_MET_MISSING_DATA_TOLERANT_YES = "Set Missing Data to Default: Yes"

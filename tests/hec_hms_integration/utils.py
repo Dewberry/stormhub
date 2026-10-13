@@ -24,6 +24,7 @@ from stormhub.met.zarr_to_dss import (
     noaa_zarr_to_dss,
     write_to_dss,
 )
+from stormhub.utils import NetCDFConfig
 
 
 def extract_model(target_dir: Path) -> Path:
@@ -82,7 +83,7 @@ def write_stormhub_dss(model: Path) -> None:
             NOAADataVariable.APCP: c.STORMHUB_DURATION_HOURS,
             NOAADataVariable.TMP: c.STORMHUB_DURATION_HOURS,
         },
-        add_nc=True,
+        nc_config=NetCDFConfig(write_netcdf=True),
     )
 
 
@@ -116,8 +117,18 @@ def stormhub_netcdf_to_stormhub_dss(
         )
 
 
-def configure_model_to_use_stormhub_met_forcing(model: Path, resolution_km: float) -> None:
+def configure_model_to_use_stormhub_met_forcing(model: Path, resolution_km: float, netcdf: bool = False) -> None:
     """Alter the HMS .grid file and .met file to use a stormhub output file for meteorological forcing.
+
+    When ``netcdf=True``, the .grid file is configured to read NetCDF file directly, with Pathname referring to the NetCDF variable, e.g.
+    Example::
+
+        Data Source Type: NetCDF
+        Filename: data/met_forcing_stormhub.nc
+        Pathname: PRECIPITATION
+
+    Process
+    -------
 
     First, replace strings like this in the .grid file:
 
@@ -183,20 +194,38 @@ def configure_model_to_use_stormhub_met_forcing(model: Path, resolution_km: floa
     logging.info(f"About to edit {grid_file} and {met_file} to use stormhub dss for Precipitation and Temperature")
 
     # Update .grid file
-    grid_updates = [
-        {
-            "find_grid_type": "Precipitation",
-            "new_gridname": precip_grid_name,
-            "new_filename": c.DATA_MET_FORCING_STORMHUB,
-            "new_pathname": f"/SHG{resolution_km}K/{c.PROJECT_NAME.upper()}/PRECIPITATION///AORC/",
-        },
-        {
-            "find_grid_type": "Temperature",
-            "new_gridname": temperature_grid_name,
-            "new_filename": c.DATA_MET_FORCING_STORMHUB,
-            "new_pathname": f"/SHG{resolution_km}K/{c.PROJECT_NAME.upper()}/TEMPERATURE///AORC/",
-        },
-    ]
+    if netcdf:
+        grid_updates = [
+            {
+                "find_grid_type": "Precipitation",
+                "new_gridname": precip_grid_name,
+                "new_filename": c.DATA_MET_FORCING_STORMHUB_NETCDF,
+                "new_pathname": NOAADataVariable.APCP.dss_variable_title,
+                "new_ds_type": "NetCDF",
+            },
+            {
+                "find_grid_type": "Temperature",
+                "new_gridname": temperature_grid_name,
+                "new_filename": c.DATA_MET_FORCING_STORMHUB_NETCDF,
+                "new_pathname": NOAADataVariable.TMP.dss_variable_title,
+                "new_ds_type": "NetCDF",
+            },
+        ]
+    else:
+        grid_updates = [
+            {
+                "find_grid_type": "Precipitation",
+                "new_gridname": precip_grid_name,
+                "new_filename": c.DATA_MET_FORCING_STORMHUB,
+                "new_pathname": f"/SHG{resolution_km}K/{c.PROJECT_NAME.upper()}/PRECIPITATION///AORC/",
+            },
+            {
+                "find_grid_type": "Temperature",
+                "new_gridname": temperature_grid_name,
+                "new_filename": c.DATA_MET_FORCING_STORMHUB,
+                "new_pathname": f"/SHG{resolution_km}K/{c.PROJECT_NAME.upper()}/TEMPERATURE///AORC/",
+            },
+        ]
     logging.info(f"Reading: {grid_file}")
     content = grid_file.read_text()
     for kwargs in grid_updates:
@@ -305,7 +334,12 @@ def _get_control_window() -> tuple[datetime, datetime]:
 
 
 def _update_grid_file_block(
-    orig_content: str, find_grid_type: str, new_gridname: str, new_filename: str, new_pathname: str
+    orig_content: str,
+    find_grid_type: str,
+    new_gridname: str,
+    new_filename: str,
+    new_pathname: str,
+    new_ds_type: str | None = None,
 ) -> str:
     """From .grid text file content, find a "Grid:" block where "Grid Type:" is "Precipitation" or "Temperature". Update that block in a copy and return it.
 
@@ -327,7 +361,11 @@ def _update_grid_file_block(
         The new value to apply for "Filename:", e.g. "data/stormhub-forcing.dss".
 
     new_pathname : str
-        The new value to apply for DSS "Pathname:", e.g. f"/SHG{resolution_km}K/{c.PROJECT_NAME.upper()}/{variable}///AORC/".
+        The new value to apply for "Pathname:". For DSS, e.g. f"/SHG{resolution_km}K/{c.PROJECT_NAME.upper()}/{variable}///AORC/".
+        For NetCDF, the variable name, e.g. "PRECIPITATION".
+
+    new_ds_type : str | None
+        Optional new value for "Data Source Type:", e.g. "NetCDF". If None, the existing value is kept.
 
     Returns
     -------
@@ -355,6 +393,10 @@ def _update_grid_file_block(
     block = re.sub(r"^     Grid:.*$", f"     Grid: {new_gridname}", block, flags=line_replace_flags)
     block = re.sub(r"^     Filename:.*$", f"     Filename: {new_filename}", block, flags=line_replace_flags)
     block = re.sub(r"^     Pathname:.*$", f"     Pathname: {new_pathname}", block, flags=line_replace_flags)
+    if new_ds_type is not None:
+        block = re.sub(
+            r"^     Data Source Type:.*$", f"     Data Source Type: {new_ds_type}", block, flags=line_replace_flags
+        )
 
     new_content = orig_content[: match.start()] + block + orig_content[match.end() :]
     return new_content

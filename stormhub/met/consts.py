@@ -25,3 +25,7 @@ DSS_ASSET_ROLES = ["data"]
 NETCDF_ASSET_DESCRIPTION = "NetCDF file containing meteorological data for storm period."
 NETCDF_ASSET_MEDIA_TYPE = "application/netcdf"
 NETCDF_ASSET_ROLES = ["data"]
+
+STORM_NC_KERCHUNK_COLLECTION_ASSET_KEY = "stormhub-storm-kerchunk-ref"
+STORM_NC_KERCHUNK_INDIVIDUAL_ASSET_DESCRIPTION = "Kerchunk reference for individual NetCDF file containing meteorological data for storm period. Stored as .json.zst file or .parquet directory."
+STORM_NC_KERCHUNK_COLLECTION_ASSET_DESCRIPTION = "Kerchunk reference for aggregated collection-level NetCDF files containing meteorological data for storm period.  Stored as .json.zst file or .parquet directory."

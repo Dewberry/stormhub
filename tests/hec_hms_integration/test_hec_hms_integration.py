@@ -20,12 +20,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import pystac
+import xarray as xr
 from conftest import ComparisonError
 from hec_hms_integration import constants as c
 from hec_hms_integration import utils
 from hecdss import HecDss
 
+from stormhub.kerchunker import KerchunkConfig, Kerchunker, kerchunk_reader_options, storm_netcdf_collection_axes
 from stormhub.met.zarr_to_dss import NOAADataVariable, noaa_zarr_to_dss
+from stormhub.utils import NetCDFConfig
 
 pytestmark = pytest.mark.skipif(
     not c.HMS_VERSION or not (c.HMS_HOME / "hec-hms.sh").is_file(),
@@ -45,7 +49,40 @@ def _mkdtemp(req: pytest.FixtureRequest) -> Path:
     return tmp_dir
 
 
-def test_netcdf_dss_equivalence(tmp_path: Path) -> None:
+def _nc_make_kerchunk_ref(netcdf_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """Create kerchunk references (a .json.zst per NetCDF file and a .parquet dir for an aggregate reference) and return their Paths."""
+    item = pystac.Item(id="forcing", geometry=None, bbox=None, datetime=datetime(2018, 9, 6, 16), properties={})
+    collection = pystac.Collection(id="forcing", description="Test forcing", extent=pystac.Extent.from_items([item]))
+    collection.set_self_href(str(tmp_path / "collection.json"))
+    monkeypatch.setattr(collection, "save_object", lambda: None)
+    kerchunker = Kerchunker(
+        KerchunkConfig(
+            make_individual_refs="json.zst",
+            make_collection_ref="parquet",
+            collection_axes=storm_netcdf_collection_axes,
+        )
+    )
+    individual_reference = kerchunker.add(item, netcdf_path, str(netcdf_path), "1")
+    collection_reference = kerchunker.finish(collection)
+    assert not (tmp_path / "collection.json").exists()
+    return individual_reference, collection_reference
+
+
+def _nc_compare_with_kerchunk(netcdf_path: Path, individual_reference: Path, collection_reference: Path) -> None:
+    """Read the NetCDF file and the two Kerchunk references, and assert their data is equivalent."""
+    logging.info(f"Reading NetCDF file: {netcdf_path}")
+    with xr.open_dataset(netcdf_path, engine="h5netcdf", mask_and_scale=False) as original:
+        for reference_path in (individual_reference, collection_reference):
+            logging.info(f"Reading Kerchunk reference: {reference_path}")
+            assert reference_path is not None and reference_path.exists()
+            options = kerchunk_reader_options(reference_path)
+            with xr.open_zarr(
+                "reference://", storage_options=options, consolidated=False, chunks=None, mask_and_scale=False
+            ) as referenced:
+                xr.testing.assert_allclose(original, referenced)
+
+
+def test_netcdf_dss_equivalence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify equivalence of two .dss files: stormhub forcing as direct DSS file vs stormhub forcing as NetCDF file later converted to DSS.
 
     tmp_path is a built-in pytest fixture that is automatically cleaned up.
@@ -63,12 +100,17 @@ def test_netcdf_dss_equivalence(tmp_path: Path) -> None:
         storm_start=datetime(2018, 9, 6, 16),
         variable_duration_map={NOAADataVariable.APCP: 1, NOAADataVariable.TMP: 3},
         output_resolution_km=1,
-        add_nc=True,
+        nc_config=NetCDFConfig(write_netcdf=True),
     )
     assert direct_dss_path.is_file()
 
     converted_dss_path = tmp_path / "converted.dss"
     assert netcdf_path.is_file()
+
+    # Make Kerchunk references, then read them and assert they match the original NetCDF data.
+    individual_reference, collection_reference = _nc_make_kerchunk_ref(netcdf_path, tmp_path, monkeypatch)
+    _nc_compare_with_kerchunk(netcdf_path, individual_reference, collection_reference)
+
     assert not converted_dss_path.is_file()
     utils.stormhub_netcdf_to_stormhub_dss(netcdf_path, converted_dss_path, "PUNX", 1)
     assert converted_dss_path.is_file()
@@ -153,6 +195,19 @@ def test_hec_hms_integration_stormhub_dss(request) -> None:
             )
         except ComparisonError as error:
             comparison_failures.append(f"Failed when comparing Stormhub Direct-DSS vs NetCDF-to-DSS:\n{error}")
+
+        # Run the model reading the stormhub NetCDF file directly (.grid "Data Source Type: NetCDF").
+        # Compare the HMS result with that of the model ran with stormhub's direct DSS output.
+        stormhub_forcing_dss.unlink()
+        utils.configure_model_to_use_stormhub_met_forcing(model, c.PIXEL_RESOLUTION_KM, netcdf=True)
+        utils.run_model_assert_success(model)
+        hms_results_from_stormhub_forcing_netcdf = utils.check_hms_results(model, comp_label="stormhub-netcdf")
+        try:
+            hms_results_from_stormhub_direct_dss_forcing.compare_with_tolerance(
+                hms_results_from_stormhub_forcing_netcdf, tol_rel=0.01, tol_abs=1
+            )
+        except ComparisonError as error:
+            comparison_failures.append(f"Failed when comparing Stormhub Direct-DSS vs NetCDF:\n{error}")
 
         # Fail if any of the comparisons failed.
         if comparison_failures:

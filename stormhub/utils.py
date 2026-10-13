@@ -5,19 +5,24 @@ from __future__ import annotations
 import json
 import logging
 import socket
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import List
 import os
 from pathlib import Path
 
 import numpy as np
-from pystac import Link, Collection
+from pystac import Asset, Collection, Item, Link
 from shapely.geometry import mapping, shape
 import xarray as xr
 
+from stormhub.kerchunker import KerchunkConfig
 from stormhub.met.consts import (
     DSS_TIME_DIMENSION,
     KM_TO_M_CONVERSION_FACTOR,
+    NETCDF_ASSET_DESCRIPTION,
+    NETCDF_ASSET_MEDIA_TYPE,
+    NETCDF_ASSET_ROLES,
     NETCDF_TIME_BOUNDS,
     NETCDF_TIME_BOUNDS_SUFFIX,
     SHG_WKT,
@@ -35,6 +40,36 @@ STORMHUB_REF_LINK = Link(
     media_type="text/html",
     extra_fields={"Description": "Source code used to generate STAC objects"},
 )
+
+
+@dataclass(frozen=True)
+class NetCDFConfig:
+    """Configure NetCDF export and optional associated Kerchunk behavior."""
+
+    write_netcdf: bool = False
+    kerchunk_config: KerchunkConfig = field(default_factory=KerchunkConfig)
+
+    def __post_init__(self) -> None:
+        """Validate compatible NetCDF and Kerchunk settings."""
+        if not self.write_netcdf and (
+            self.kerchunk_config.make_individual_refs is not None
+            or self.kerchunk_config.make_collection_ref is not None
+        ):
+            raise ValueError("Cannot request Kerchunking when write_netcdf is False.")
+
+
+def add_storm_netcdf_asset(item: Item, netcdf_path: Path, netcdf_href: str) -> None:
+    """Attach the storm NetCDF file as an asset on its STAC item."""
+    item.add_asset(
+        netcdf_path.name,
+        Asset(
+            netcdf_href,
+            netcdf_path.name,
+            description=NETCDF_ASSET_DESCRIPTION,
+            media_type=NETCDF_ASSET_MEDIA_TYPE,
+            roles=NETCDF_ASSET_ROLES,
+        ),
+    )
 
 
 def is_port_in_use(port: int = 8080, host: str = "http://localhost") -> bool:
@@ -208,9 +243,9 @@ def reproject_to_shg(data: xr.Dataset | xr.DataArray, output_resolution_km: int)
     return data
 
 
-def make_nc_vortex_compliant(data: xr.Dataset, variables: List[NOAADataVariable]) -> xr.Dataset:
+def convert_xr_dataset_for_hec_hms_shg_nc(data: xr.Dataset, variables: List[NOAADataVariable]) -> xr.Dataset:
     """
-    Transform an AORC xarray Dataset into a CF-1.9 compliant NetCDF compatible with HEC-Vortex.
+    Transform an AORC xarray Dataset into a CF-1.9 compliant NetCDF compatible with HEC-HMS.
 
     Handles CRS promotion, grid_mapping attributes, variable renaming, CF standard attributes,
     and time bounds creation.
@@ -220,6 +255,9 @@ def make_nc_vortex_compliant(data: xr.Dataset, variables: List[NOAADataVariable]
     For PRECIPITATION, units "mm" is used instead of "kg m-2", for HMS/Vortex. According to the CF Standard Name Table,
     The "standard_name" should be "lwe_thickness_of_precipitation_amount", rather than "precipitation_amount", when a
     length unit is used for precipitation instead of a mass unit.  See: https://cfconventions.org/Data/cf-standard-names/current/build/cf-standard-name-table.html
+
+    For TEMPERATURE, HMS rejects "degrees_Celsius" when reading NetCDF directly.
+    HMS accepts "degC", an equivalent UDUNITS alias. See: https://github.com/Unidata/UDUNITS-2/blob/main/lib/udunits2-common.xml#L78-L99
 
     Args:
         data (xr.Dataset): Dataset with spatial_ref coordinate (from rioxarray reproject).
@@ -256,7 +294,7 @@ def make_nc_vortex_compliant(data: xr.Dataset, variables: List[NOAADataVariable]
         temp_units = data["TEMPERATURE"].attrs.get("units")
         if temp_units != "degrees_Celsius":
             raise ValueError(f"Expected temperature in 'degrees_Celsius', got {temp_units!r}.")
-        data["TEMPERATURE"].attrs.update({"standard_name": "air_temperature"})
+        data["TEMPERATURE"].attrs.update({"standard_name": "air_temperature", "units": "degC"})
 
     # Time attributes
     data["time"].attrs = {
@@ -280,7 +318,7 @@ def make_nc_vortex_compliant(data: xr.Dataset, variables: List[NOAADataVariable]
     return data
 
 
-def write_shg_netcdf_vortex_compliant_variable_durations(
+def write_hec_hms_shg_nc(
     var_data_by_var: dict[NOAADataVariable, xr.DataArray],
     output_path: str | Path,
     output_resolution_km: int,
@@ -345,7 +383,7 @@ def write_shg_netcdf_vortex_compliant_variable_durations(
         time_dimension = var.netcdf_time_dimension
         variable_data = data[var.value].rename({time_dimension: DSS_TIME_DIMENSION})
         variable_data = reproject_to_shg(variable_data.astype("float32"), output_resolution_km)
-        nc_dataset = make_nc_vortex_compliant(xr.Dataset({var.value: variable_data}), [var])
+        nc_dataset = convert_xr_dataset_for_hec_hms_shg_nc(xr.Dataset({var.value: variable_data}), [var])
         time_bounds = f"{time_dimension}{NETCDF_TIME_BOUNDS_SUFFIX}"
         nc_dataset = nc_dataset.rename({DSS_TIME_DIMENSION: time_dimension, NETCDF_TIME_BOUNDS: time_bounds})
         nc_dataset[time_dimension].attrs["bounds"] = time_bounds

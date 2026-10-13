@@ -23,6 +23,11 @@ import matplotlib
 import numpy as np
 import zarr
 from stormhub.hydro_domain import HydroDomain
+from stormhub.kerchunker import (
+    Kerchunker,
+    create_kerchunker_for_stormhub_nc_forcing,
+    register_storm_netcdf,
+)
 from stormhub.logger import initialize_logger
 from stormhub.met.analysis import StormAnalyzer
 from stormhub.met.aorc.aorc import AORCItem, valid_spaces_item
@@ -30,9 +35,6 @@ from stormhub.met.consts import (
     DSS_ASSET_DESCRIPTION,
     DSS_ASSET_MEDIA_TYPE,
     DSS_ASSET_ROLES,
-    NETCDF_ASSET_DESCRIPTION,
-    NETCDF_ASSET_MEDIA_TYPE,
-    NETCDF_ASSET_ROLES,
 )
 from stormhub.met.zarr_to_dss import (
     get_aorc_paths,
@@ -42,8 +44,10 @@ from stormhub.met.zarr_to_dss import (
     save_da_as_geotiff,
 )
 from stormhub.utils import (
+    NetCDFConfig,
     STORMHUB_REF_LINK,
     StacPathManager,
+    add_storm_netcdf_asset,
     generate_date_range,
     validate_config,
 )
@@ -1240,7 +1244,7 @@ def add_storm_dss_files(
     variable_duration_map: Dict[NOAADataVariable, int] = None,
     dss_output_dir: str = None,
     output_resolution_km: int = 1,
-    add_nc: bool = False,
+    nc_config: NetCDFConfig | None = None,
 ):
     """
     Write new DSS files and add associated catalog assets to all storm items in the events collection. Optionally, also write equivalent NetCDF files and add associated assets.
@@ -1252,8 +1256,12 @@ def add_storm_dss_files(
         variable_duration_map (Dict[NOAADataVariable, int], Optional): Optional variable map to include multiple variables and/or different durations for dss creation. If None is given, only precipitation is used at the duration between the storm items start and end time.
         dss_output_dir (str, optional): Optional output directory for DSS and NetCDF files. If None, files are saved in the same directory as the associated storm item.
         output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). Default: 1.
-        add_nc (bool, optional): If True, export a HMS/Vortex-compliant SHG NetCDF file in addition to the DSS file. Default: False.
+        nc_config (NetCDFConfig, optional): Configuration for NetCDF export and related Kerchunking.
     """
+    if nc_config is None:
+        nc_config = NetCDFConfig()
+    kerchunker = create_kerchunker_for_stormhub_nc_forcing(nc_config.kerchunk_config)
+
     if isinstance(catalog, str):
         catalog = pystac.read_file(catalog)
 
@@ -1264,7 +1272,7 @@ def add_storm_dss_files(
     if aoi_name is None:
         aoi_name = catalog.id
 
-    nc_files = []
+    errors = []
     for item in events_collection.get_items():
         try:
             if dss_output_dir:
@@ -1281,25 +1289,27 @@ def add_storm_dss_files(
             dss_fn = f"{start_date}.dss"
             dss_output_path = os.path.join(item_dir, dss_fn)
 
-            if variable_duration_map is None:
+            item_duration_map = variable_duration_map
+            if item_duration_map is None:
                 full_end_date = item.properties["end_datetime"]
                 end_date_dt = datetime.strptime(full_end_date, "%Y-%m-%dT%H:%M:%SZ")
                 time_difference = end_date_dt - start_date_dt
                 duration_hours = time_difference.total_seconds() / 3600
 
-                variable_duration_map = {NOAADataVariable.APCP: duration_hours}
+                item_duration_map = {NOAADataVariable.APCP: duration_hours}
 
             nc_written = noaa_zarr_to_dss(
                 dss_output_path,
                 transpo_href,
                 aoi_name,
                 start_date_dt,
-                variable_duration_map,
+                item_duration_map,
                 output_resolution_km,
-                add_nc=add_nc,
+                nc_config=nc_config,
             )
-            if nc_written is not None:
-                nc_files.append(nc_written)
+            netcdf_error = register_storm_netcdf(item, nc_written, dss_output_path, kerchunker)
+            if netcdf_error is not None:
+                errors.append(netcdf_error)
             item.add_asset(
                 dss_fn,
                 Asset(
@@ -1314,12 +1324,24 @@ def add_storm_dss_files(
             logging.info(f"Successfully saved storm dss file to: {dss_output_path}")
         except Exception as e:
             logging.error(f"Could not create dss file for item: {item.id} with error: {e}")
+            if (
+                nc_config.kerchunk_config.make_individual_refs is not None
+                or nc_config.kerchunk_config.make_collection_ref is not None
+            ):
+                errors.append(e)
 
-    if add_nc:
-        add_existing_storm_nc_files_to_collection(catalog, nc_files)
+    if errors:
+        if nc_config.kerchunk_config.make_collection_ref is not None:
+            raise RuntimeError(f"Collection Kerchunk output skipped because {len(errors)} error(s) occurred: {errors}")
+        raise RuntimeError(errors)
+    kerchunker.finish(events_collection)
 
 
-def add_existing_storm_nc_files_to_collection(catalog: pystac.Catalog, nc_files: List[str | Path]) -> None:
+def add_existing_storm_nc_files_to_collection(
+    catalog: pystac.Catalog,
+    nc_files: List[str | Path],
+    kerchunker: Kerchunker | None = None,
+) -> None:
     """
     For every forcing DSS asset in the events collection, add the equivalent NetCDF sidecar file, matching existing convention for the DSS href.
 
@@ -1327,8 +1349,11 @@ def add_existing_storm_nc_files_to_collection(catalog: pystac.Catalog, nc_files:
 
     Args:
         catalog (Union[str | pystac.Catalog]): The storm catalog or path to the catalog file.
-        nc_files (list[str | Path]): NetCDF (each call to ``noaa_zarr_to_dss`` returns one of these when ``add_nc=True``).
+        nc_files (list[str | Path]): NetCDF outputs returned by calls to ``noaa_zarr_to_dss`` configured to write NetCDF.
+        kerchunker: Optional Kerchunk reference and STAC asset manager.
     """
+    if kerchunker is None:
+        kerchunker = Kerchunker()
     if isinstance(catalog, str):
         catalog = pystac.read_file(catalog)
 
@@ -1372,22 +1397,14 @@ def add_existing_storm_nc_files_to_collection(catalog: pystac.Catalog, nc_files:
         nc_path = dss_path.with_suffix(".nc")
         if not nc_path.is_file():
             errors.append(FileNotFoundError(nc_path))
-            continue
-        nc_fn = nc_path.name
-        item.add_asset(
-            nc_fn,
-            Asset(
-                nc_href,
-                nc_fn,
-                description=NETCDF_ASSET_DESCRIPTION,
-                media_type=NETCDF_ASSET_MEDIA_TYPE,
-                roles=NETCDF_ASSET_ROLES,
-            ),
-        )
-        item.save_object()
-        logging.info("Added storm NetCDF asset to item %s: %s", item.id, nc_path)
     if errors:
         raise RuntimeError(errors)
+    for item, dss_path, nc_href in items_ncpaths:
+        nc_path = dss_path.with_suffix(".nc")
+        add_storm_netcdf_asset(item, nc_path, nc_href)
+        kerchunker.add(item, nc_path, nc_href, item.properties["start_datetime"])
+        item.save_object()
+        logging.info("Added storm NetCDF asset to item %s: %s", item.id, nc_path)
 
 
 def avg_annual_max_grids(zarr_path: str, normal_precip_grid_path: str = "normalized_precip.tif"):
@@ -1480,7 +1497,8 @@ def create_normal_precip(
                     max_grid = xr.where(da > max_grid, da, max_grid)
 
             logging.info(f"Saving max grid for {year} into group {year}")
-            max_grid.to_zarr(ams_zarr_path, group=str(year), mode="a")
+            # zarr_format=2 needed because kerchunk 0.2.10 requires zarr 3. stormhub continues writing zarr v2.
+            max_grid.to_zarr(ams_zarr_path, group=str(year), mode="a", zarr_format=2)
         except Exception as e:
             logging.error(f"Error processing year {year}: {e}")
 

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 import math
 from pathlib import Path
-from typing import List, Tuple, Literal, Dict
+from typing import Dict, List, Literal, Tuple
 from affine import Affine
 from hecdss import HecDss, gridded_data
 import numpy as np
@@ -24,8 +24,9 @@ from stormhub.met.consts import (
     SHG_WKT,
 )
 from stormhub.utils import (
+    NetCDFConfig,
     reproject_to_shg,
-    write_shg_netcdf_vortex_compliant_variable_durations,
+    write_hec_hms_shg_nc,
 )
 import logging
 
@@ -521,7 +522,7 @@ def noaa_zarr_to_dss(
     storm_start: datetime,
     variable_duration_map: Dict[NOAADataVariable, int],
     output_resolution_km: int,
-    add_nc: bool = False,
+    nc_config: NetCDFConfig | None = None,
 ) -> Path | None:
     """
     Given a geometry and datetime information about a storm, writes AORC variables of interest from NOAA zarr dataset to DSS.
@@ -533,12 +534,14 @@ def noaa_zarr_to_dss(
         storm_start: The start datetime of the storm.
         variable_duration_map: A mapping of NOAA data variables to their respective durations in hours.
         output_resolution_km: The spatial resolution for the output data in kilometers.
-        add_nc: If True, export a HMS/Vortex-compliant SHG NetCDF file in addition to the DSS file. Default: False.
+        nc_config: NetCDF export and Kerchunk reference settings.
 
     Returns
     -------
-        The NetCDF output path when ``add_nc`` is True. Otherwise None.
+        The NetCDF output path when configured for NetCDF export. Otherwise None.
     """
+    if nc_config is None:
+        nc_config = NetCDFConfig()
     aorc_data = fetch_aorc_data(storm_start, variable_duration_map, aoi_geometry_gpkg_path)
 
     var_data_by_var = {}
@@ -555,9 +558,9 @@ def noaa_zarr_to_dss(
         del data
 
     # Write to NetCDF
-    if add_nc:
+    if nc_config.write_netcdf:
         nc_output_path = Path(output_dss_path).with_suffix(".nc")
-        write_shg_netcdf_vortex_compliant_variable_durations(var_data_by_var, nc_output_path, output_resolution_km)
+        write_hec_hms_shg_nc(var_data_by_var, nc_output_path, output_resolution_km)
     else:
         logging.info(f"Skipping export to NetCDF.")
         nc_output_path = None
