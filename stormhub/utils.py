@@ -10,7 +10,8 @@ import os
 
 from affine import Affine
 from pystac import Link, Collection
-import rasterio
+import rasterio.enums
+import rasterio.warp
 from shapely import make_valid
 from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 import xarray as xr
