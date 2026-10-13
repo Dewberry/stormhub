@@ -331,6 +331,10 @@ def get_s3_zarr_data(
         variables_of_interest: A list of variables to select from the dataset. If empty, all variables will be read.
         interp_nan_vals: A boolean indicating whether to interpolate missing values in the dataset. If True, linear interpolation will be performed along both latitude and longitude dimensions, and the results will be averaged. Defaults to False.
     """
+    # Assert one geometry record, since .iloc[0] is used (only the first geometry is used).
+    if len(aoi_gdf.geometry) != 1:
+        raise ValueError(f"AOI geometry has {len(aoi_gdf.geometry)} parts, expected 1.")
+
     s3 = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
     ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
@@ -338,9 +342,6 @@ def get_s3_zarr_data(
     # Assert geographic CRS since "longitude" and "latitude" are used.
     if not ds.rio.crs.is_geographic:
         raise ValueError(f"Raw data CRS must be geographic, but got: {ds.rio.crs}")
-    # Assert one geometry record, since .iloc[0] is used (only the first geometry is used).
-    if len(aoi_gdf.geometry) != 1:
-        raise ValueError(f"AOI geometry has {len(aoi_gdf.geometry)} parts, expected 1.")
 
     # Select only variables of interest
     if variables_of_interest:
