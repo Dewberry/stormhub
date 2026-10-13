@@ -283,7 +283,7 @@ def write_shg_netcdf_vortex_compliant_variable_durations(
     output_path: str | Path,
     output_resolution_km: int,
 ) -> None:
-    """Write Vortex NetCDF with each variable's DSS-matched time range.
+    """Write Vortex NetCDF with each variable's DSS-matched time range. Chunking: 72x64x64 (72-hour x 64km x 64km when timestep is 1 hour and resolution is 1km).
 
     Lifted (with significant mods) from: https://github.com/Dewberry/stormhub/blob/fb040218c457165e2d9c321cb4f3d722bae0ce9f/stormhub/met/storm_catalog.py#L1429-L1441
 
@@ -325,6 +325,9 @@ def write_shg_netcdf_vortex_compliant_variable_durations(
 
             When no NaN is stored, HMS/Vortex has no extra precipitation timestamps to import.
     """
+    if output_resolution_km <= 0:
+        raise ValueError(f"Expected a positive output resolution, got {output_resolution_km}.")
+
     variables = list(var_data_by_var)
     # Build the per-variable time axes required to preserve DSS record ranges.
     data = xr.Dataset(
@@ -349,7 +352,22 @@ def write_shg_netcdf_vortex_compliant_variable_durations(
     data = xr.merge(nc_datasets, compat="no_conflicts")
     # Lifted logic for compression, time units, and file-writing.
     # Modded logic for per-variable time axes.
-    encoding = {name: {"zlib": True, "complevel": 2} for name in data.data_vars}
+    encoding = {}
+    spatial_chunk_cells = max(1, 64 // output_resolution_km)
+    for var in variables:
+        variable_name = var.dss_variable_title
+        variable_data = data[variable_name]
+        encoding[variable_name] = {
+            "zlib": True,
+            "complevel": 6,
+            "chunksizes": tuple(
+                min(
+                    variable_data.sizes[dimension],
+                    72 if dimension == var.netcdf_time_dimension else spatial_chunk_cells,
+                )
+                for dimension in variable_data.dims
+            ),
+        }
     time_encoding = {"units": "hours since 1970-01-01"}
     for var in variables:
         time_dimension = var.netcdf_time_dimension
