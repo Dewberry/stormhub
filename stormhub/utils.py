@@ -232,6 +232,8 @@ def make_nc_vortex_compliant(data: xr.Dataset, variables: List[NOAADataVariable]
     # Rename spatial_ref to CF-compliant grid mapping name and move to data var
     data = data.rename({"spatial_ref": "crs"})
     data = data.reset_coords("crs")
+    data["crs"].attrs["crs_wkt"] = SHG_WKT
+    data["crs"].attrs["spatial_ref"] = SHG_WKT
 
     # Add grid_mapping to data variables
     for var in data.data_vars:
