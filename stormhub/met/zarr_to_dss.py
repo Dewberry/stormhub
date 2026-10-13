@@ -4,28 +4,26 @@ from datetime import datetime, timedelta
 from enum import Enum
 import math
 from pathlib import Path
-from typing import Dict, List, Literal, Tuple
-from affine import Affine
+from typing import List, Tuple, Literal, Dict
 from hecdss import HecDss, gridded_data
 import numpy as np
 from pandas import Timestamp
 import geopandas as gpd
 from geopandas import GeoDataFrame
 from rasterio.crs import CRS
+import rasterio.enums
 import s3fs
 import xarray as xr
 from stormhub.met.consts import (
-    DSS_TIME_DIMENSION,
     KM_TO_M_CONVERSION_FACTOR,
-    NETCDF_TIME_BOUNDS,
-    NETCDF_TIME_BOUNDS_SUFFIX,
     NETCDF_TIME_DIMENSION_PREFIX,
     NOAA_AORC_S3_BASE_URL,
     SHG_WKT,
 )
 from stormhub.utils import (
+    get_shg_reprojection_kwargs,
     NetCDFConfig,
-    reproject_to_shg,
+    repair_polygon_fill_holes,
     write_hec_hms_shg_nc,
 )
 import logging
@@ -153,29 +151,6 @@ def date_range_dss_path_format(date: datetime, measurement_type: MeasurementType
         )
 
     return start_dt_str, end_dt_str
-
-
-def get_lower_left_xy(
-    data: xr.Dataset, resolution: int, x_coord_of_grid_cell_zero=0, y_coord_of_grid_cell_zero=0
-) -> Tuple[int, int]:
-    """Get lower left xy from gridded data."""
-    y_coords = data.y.to_numpy()
-    x_coords = data.x.to_numpy()
-
-    y_coord = y_coords[-1] if y_coords[-1] < y_coords[0] else y_coords[0]
-    x_coord = x_coords[-1] if x_coords[-1] < x_coords[0] else x_coords[0]
-
-    affine_transform = Affine(resolution, 0.0, x_coord, 0.0, resolution, y_coord)
-
-    cellsize = affine_transform[0]
-
-    xmin = affine_transform[2] - x_coord_of_grid_cell_zero
-    ymax = affine_transform[5] - y_coord_of_grid_cell_zero
-
-    lower_left_x = int(math.floor(xmin / cellsize))
-    lower_left_y = int(math.floor(ymax / cellsize))
-
-    return (lower_left_x, lower_left_y)
 
 
 def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.Dataset:
@@ -355,12 +330,20 @@ def get_s3_zarr_data(
         variables_of_interest: A list of variables to select from the dataset. If empty, all variables will be read.
         interp_nan_vals: A boolean indicating whether to interpolate missing values in the dataset. If True, linear interpolation will be performed along both latitude and longitude dimensions, and the results will be averaged. Defaults to False.
     """
+    # Assert one geometry record, since .iloc[0] is used (only the first geometry is used).
+    if len(aoi_gdf.geometry) != 1:
+        raise ValueError(f"AOI geometry has {len(aoi_gdf.geometry)} parts, expected 1.")
+
     s3 = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
     try:
         ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
     except ValueError:
         ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=False)
+
+    # Assert geographic CRS since "longitude" and "latitude" are used.
+    if not ds.rio.crs.is_geographic:
+        raise ValueError(f"Raw data CRS must be geographic, but got: {ds.rio.crs}")
 
     # Select only variables of interest
     if variables_of_interest:
@@ -369,6 +352,8 @@ def get_s3_zarr_data(
     # Reproject AOI and clip spatially
     aoi_gdf = aoi_gdf.to_crs(ds.rio.crs)
     aoi_shape = aoi_gdf.geometry.iloc[0]
+    aoi_shape = repair_polygon_fill_holes(aoi_shape)
+
     bounds = aoi_shape.bounds
     ds = ds.sel(
         time=slice(start_dt, end_dt), longitude=slice(bounds[0], bounds[2]), latitude=slice(bounds[1], bounds[3])
@@ -425,6 +410,14 @@ def write_to_dss(
     """
     Write geospatial data to a DSS file while transforming the data to fit DSS conventions.
 
+    **Nearest neighbor resampling is used.**
+    **If it is desired to change this to a resampling method that involves interpolation**:
+        The pre-processes upstream of this function would need to be updated to
+        avoid tightly masking the raw pixels to the AOI polygon prior to sending
+        the grid into this function, so that this function could access nearby
+        cells, even at the perimeter. Then the tight mask would need to be
+        applied after resampling.
+
     Args:
         output_dss_path: Path to the output DSS file
         zarr_data: An xarray dataset containing the geospatial data to be written to the DSS file
@@ -435,6 +428,12 @@ def write_to_dss(
         data_version: Represents where the data comes from (e.g. "AORC")
         data_already_shg: If True, assume that the data is already in SHG, do some light validation of that assumption, and avoid reprojecting it.
     """
+    resamp_method = rasterio.enums.Resampling.nearest
+    if resamp_method != rasterio.enums.Resampling.nearest:
+        raise ValueError(
+            f"Only nearest neighbor resampling is supported (Resampling.nearest), but got {resamp_method}."
+        )
+
     dss = HecDss(output_dss_path)
     output_resolution_m = output_resolution_km * KM_TO_M_CONVERSION_FACTOR
 
@@ -446,9 +445,26 @@ def write_to_dss(
         if any(not math.isclose(abs(resolution), output_resolution_m) for resolution in data.rio.resolution()):
             raise ValueError(f"Expected {output_resolution_m} m grid resolution; got {data.rio.resolution()}.")
     else:
-        data = reproject_to_shg(data, output_resolution_km)
+        logging.info(f"reprojecting dataset")
+        times = data.time.values
 
-    lower_x, lower_y = get_lower_left_xy(data, output_resolution_m)
+        reproject_kwargs, lower_x, lower_y = get_shg_reprojection_kwargs(data, output_resolution_m, resamp_method)
+
+        if len(times) <= 144:
+            data: xr.DataArray = data.rio.reproject(**reproject_kwargs)
+        else:
+            # For larger datasets, chunking is used to avoid memory issues
+            logging.info(f"Chunking dataset for reprojection")
+            time_chunk_size = 144
+            reprojected_chunks = []
+
+            for i in range(0, len(times), time_chunk_size):
+                chunk_times = times[i : i + time_chunk_size]
+                chunk = data.sel(time=chunk_times)
+                chunk = chunk.rio.reproject(**reproject_kwargs)
+                reprojected_chunks.append(chunk)
+
+            data = xr.concat(reprojected_chunks, dim="time")
 
     for time_step in data.time:
         time_step_data = data.sel(time=time_step)

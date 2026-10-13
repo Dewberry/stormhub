@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import socket
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -11,9 +12,13 @@ from typing import List
 import os
 from pathlib import Path
 
+from affine import Affine
 import numpy as np
 from pystac import Asset, Collection, Item, Link
-from shapely.geometry import mapping, shape
+import rasterio.enums
+import rasterio.warp
+from shapely import make_valid
+from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 import xarray as xr
 
 from stormhub.kerchunker import KerchunkConfig
@@ -32,6 +37,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from stormhub.met.zarr_to_dss import NOAADataVariable
+
 
 STORMHUB_REF_LINK = Link(
     rel="Processing",
@@ -415,3 +421,90 @@ def write_hec_hms_shg_nc(
         encoding[f"{time_dimension}{NETCDF_TIME_BOUNDS_SUFFIX}"] = time_encoding
     logging.info("Writing: %s", output_path)
     data.to_netcdf(output_path, engine="h5netcdf", encoding=encoding)
+
+
+def repair_polygon_fill_holes(geom: Polygon | MultiPolygon) -> Polygon | MultiPolygon:
+    """Repair a Polygon or MultiPolygon by filling self-intersection holes (e.g. bowties) and true holes (inner rings). Return a Polygon or MultiPolygon.
+
+    Shapely make_valid() fixes self-intersection / bowtie "holes" in the exterior ring,
+    and must be called *before* discarding the true (inner ring) holes.
+
+    Shapely make_valid() can return a Polygon, MultiPolygon, or GeometryCollection
+    depending on the issues it encountered, so we need to inspect its returned object
+    and discard non-polygon components of its returned object, and reconstruct either a
+    single Polygon or a single MultiPolygon.
+
+    During this loop, we keep only the ``part.exterior`` of each part to ensure
+    that we discard inner rings, which are true holes.
+    """
+    if geom.geom_type not in ("Polygon", "MultiPolygon"):
+        raise TypeError(f"Expected input AOI to be Polygon or MultiPolygon, but got: {geom.geom_type}")
+
+    geom = make_valid(geom)
+
+    polys = []
+    parts_to_check = [geom]
+    while parts_to_check:
+        part = parts_to_check.pop()
+        if part.geom_type == "Polygon":
+            polys.append(Polygon(part.exterior))
+        elif part.geom_type in ("MultiPolygon", "GeometryCollection"):
+            parts_to_check.extend(part.geoms)
+        else:
+            logging.warning(
+                f"in repair_polygon_fill_holes, discarding geometry of type {part.geom_type} after shapely make_valid()"
+            )
+
+    if not polys:
+        raise TypeError(f"Expected polygonal area after make_valid, got: {geom.geom_type}.")
+
+    geom = polys[0] if len(polys) == 1 else MultiPolygon(polys)
+
+    if not isinstance(geom, (Polygon, MultiPolygon)):
+        raise TypeError(f"Unexpected final geometry type after repairing: {geom.geom_type}.")
+    if not geom.is_valid:
+        raise ValueError(f"Final geometry is not valid after repairing: {geom.geom_type}")
+    return geom
+
+
+def get_shg_reprojection_kwargs(
+    data: xr.Dataset, output_resolution_m: float, resamp_method: rasterio.enums.Resampling
+) -> tuple[dict, int, int]:
+    """Build a kwargs dict for rasterio reproject() to SHG. Handles validation, CRS transformation, and snapping to SHG grid.
+
+    SHG coordinates must be snapped to an integer multiple.
+    Also explicitly returns lower_x and lower_y for later SHG writing.
+    """
+    if round(output_resolution_m) != output_resolution_m:
+        raise ValueError(
+            f"output_resolution_m must be an integer or a float that represents an integer, but got: {output_resolution_m}"
+        )
+
+    # Raw bounds in SHG CRS (not yet snapped to SHG grid).
+    dst_xmin, dst_ymin, dst_xmax, dst_ymax = rasterio.warp.transform_bounds(data.rio.crs, SHG_WKT, *data.rio.bounds())
+
+    # Finding the closest integer index, growing in each direction as needed.
+    lower_x = int(math.floor(dst_xmin / output_resolution_m))
+    lower_y = int(math.floor(dst_ymin / output_resolution_m))
+    upper_x = int(math.ceil(dst_xmax / output_resolution_m))
+    upper_y = int(math.ceil(dst_ymax / output_resolution_m))
+
+    # Converting those integer indexes to global coordinates on SHG grid system.
+    snapped_xmin = lower_x * output_resolution_m
+    snapped_ymin = lower_y * output_resolution_m
+    snapped_xmax = upper_x * output_resolution_m
+    snapped_ymax = upper_y * output_resolution_m
+
+    # array width = dx divided by resolution
+    dst_width = int(round((snapped_xmax - snapped_xmin) / output_resolution_m))
+    # array height = dy divided by resolution
+    dst_height = int(round((snapped_ymax - snapped_ymin) / output_resolution_m))
+
+    dst_transform = Affine(output_resolution_m, 0.0, snapped_xmin, 0.0, -output_resolution_m, snapped_ymax)
+    reproject_kwargs = {
+        "dst_crs": SHG_WKT,
+        "shape": (dst_height, dst_width),
+        "transform": dst_transform,
+        "resampling": resamp_method,
+    }
+    return reproject_kwargs, lower_x, lower_y
