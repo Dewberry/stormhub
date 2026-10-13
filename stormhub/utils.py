@@ -202,5 +202,5 @@ def repair_polygon_fill_holes(geom: Polygon | MultiPolygon) -> Polygon | MultiPo
     if not isinstance(geom, (Polygon, MultiPolygon)):
         raise TypeError(f"Unexpected final geometry type after repairing: {geom.geom_type}.")
     if not geom.is_valid:
-        raise ValueError(f"Final geometry is not valid after repa")
+        raise ValueError(f"Final geometry is not valid after repairing: {geom.geom_type}")
     return geom
