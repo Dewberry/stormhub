@@ -10,7 +10,6 @@ import numpy as np
 from pandas import Timestamp
 import geopandas as gpd
 from geopandas import GeoDataFrame
-from rasterio.crs import CRS
 import rasterio.enums
 import s3fs
 import xarray as xr
@@ -21,9 +20,10 @@ from stormhub.met.consts import (
     SHG_WKT,
 )
 from stormhub.utils import (
-    get_shg_reprojection_kwargs,
     NetCDFConfig,
     repair_polygon_fill_holes,
+    reproject_to_shg,
+    validate_shg,
     write_hec_hms_shg_nc,
 )
 import logging
@@ -428,43 +428,14 @@ def write_to_dss(
         data_version: Represents where the data comes from (e.g. "AORC")
         data_already_shg: If True, assume that the data is already in SHG, do some light validation of that assumption, and avoid reprojecting it.
     """
-    resamp_method = rasterio.enums.Resampling.nearest
-    if resamp_method != rasterio.enums.Resampling.nearest:
-        raise ValueError(
-            f"Only nearest neighbor resampling is supported (Resampling.nearest), but got {resamp_method}."
-        )
-
     dss = HecDss(output_dss_path)
     output_resolution_m = output_resolution_km * KM_TO_M_CONVERSION_FACTOR
 
     if data_already_shg:
         logging.debug("Assuming data is already in SHG. Not reprojecting.")
-        data = data.rio.set_spatial_dims(x_dim="x", y_dim="y")
-        if data.rio.crs != CRS.from_wkt(SHG_WKT):
-            raise ValueError(f"Expected SHG CRS {SHG_WKT}, got {data.rio.crs}.")
-        if any(not math.isclose(abs(resolution), output_resolution_m) for resolution in data.rio.resolution()):
-            raise ValueError(f"Expected {output_resolution_m} m grid resolution; got {data.rio.resolution()}.")
+        lower_x, lower_y = validate_shg(data)
     else:
-        logging.info(f"reprojecting dataset")
-        times = data.time.values
-
-        reproject_kwargs, lower_x, lower_y = get_shg_reprojection_kwargs(data, output_resolution_m, resamp_method)
-
-        if len(times) <= 144:
-            data: xr.DataArray = data.rio.reproject(**reproject_kwargs)
-        else:
-            # For larger datasets, chunking is used to avoid memory issues
-            logging.info(f"Chunking dataset for reprojection")
-            time_chunk_size = 144
-            reprojected_chunks = []
-
-            for i in range(0, len(times), time_chunk_size):
-                chunk_times = times[i : i + time_chunk_size]
-                chunk = data.sel(time=chunk_times)
-                chunk = chunk.rio.reproject(**reproject_kwargs)
-                reprojected_chunks.append(chunk)
-
-            data = xr.concat(reprojected_chunks, dim="time")
+        data, lower_x, lower_y = reproject_to_shg(data, output_resolution_km)
 
     for time_step in data.time:
         time_step_data = data.sel(time=time_step)

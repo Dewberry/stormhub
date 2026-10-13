@@ -15,6 +15,7 @@ from pathlib import Path
 from affine import Affine
 import numpy as np
 from pystac import Asset, Collection, Item, Link
+from rasterio.crs import CRS
 import rasterio.enums
 import rasterio.warp
 from shapely import make_valid
@@ -220,33 +221,66 @@ def file_table(data: dict, col1: str, col2: str):
     return table
 
 
-def reproject_to_shg(data: xr.Dataset | xr.DataArray, output_resolution_km: int) -> xr.Dataset | xr.DataArray:
-    """Reproject a xarray.Dataset to SHG and return it. Logic moved out from ``zarr_to_dss.write_to_dss``.
+def reproject_to_shg(
+    data: xr.Dataset | xr.DataArray, output_resolution_km: int
+) -> tuple[xr.Dataset | xr.DataArray, int, int]:
+    """Reproject the xr object to SHG and return it with its snapped LLC indices.
 
     Lifted from: https://github.com/Dewberry/stormhub/blob/a654a87e94800e7d89c8248e946fac1dac594acc/stormhub/met/zarr_to_dss.py#L333-L352
+    Then modified to use shared ``get_shg_reprojection_kwargs`` for proper snapping.
     """
     output_resolution_m = output_resolution_km * KM_TO_M_CONVERSION_FACTOR
 
     logging.info(f"reprojecting dataset")
     times = data.time.values
+    reproject_kwargs, lower_x, lower_y = get_shg_reprojection_kwargs(data, output_resolution_m)
 
     if len(times) <= 144:
-        data: xr.DataArray = data.rio.reproject(SHG_WKT, resolution=output_resolution_m)
+        data = data.rio.reproject(**reproject_kwargs)
     else:
-        # For larger datasets, chunking is used to avoid memory issues
-        logging.info(f"Chunking dataset for reprojection")
+        logging.info("Chunking dataset for reprojection")
         time_chunk_size = 144
         reprojected_chunks = []
 
         for i in range(0, len(times), time_chunk_size):
             chunk_times = times[i : i + time_chunk_size]
             chunk = data.sel(time=chunk_times)
-            chunk = chunk.rio.reproject(SHG_WKT, resolution=output_resolution_m)
+            chunk = chunk.rio.reproject(**reproject_kwargs)
             reprojected_chunks.append(chunk)
 
         data = xr.concat(reprojected_chunks, dim="time")
 
-    return data
+    validate_shg(data)
+    return data, lower_x, lower_y
+
+
+def validate_shg(data: xr.Dataset | xr.DataArray) -> tuple[int, int]:
+    """Validate that the xr object is SHG and return its LLC indices."""
+    if data.rio.crs != CRS.from_wkt(SHG_WKT):
+        raise ValueError(f"Expected SHG CRS {SHG_WKT}, got {data.rio.crs}.")
+
+    resolution_x, resolution_y = data.rio.resolution()
+    output_resolution_m = abs(resolution_x)
+    if output_resolution_m <= 0 or not math.isclose(abs(resolution_y), output_resolution_m):
+        raise ValueError(f"Expected square SHG pixels with positive resolution; got {data.rio.resolution()}.")
+
+    shg_res_choices = (10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
+    for res in (resolution_x, resolution_y):
+        if abs(res) not in shg_res_choices:
+            raise ValueError(f"Resolution {abs(res)} is not allowed for SHG. Expected one of: {shg_res_choices}")
+
+    _, lower_x, lower_y = get_shg_reprojection_kwargs(data, output_resolution_m)
+    left, bottom, _, _ = data.rio.bounds()
+    expected_left = lower_x * output_resolution_m
+    expected_bottom = lower_y * output_resolution_m
+    if not (
+        math.isclose(left, expected_left, rel_tol=0, abs_tol=1e-6)
+        and math.isclose(bottom, expected_bottom, rel_tol=0, abs_tol=1e-6)
+    ):
+        raise ValueError(
+            f"Expected LLC to align to integer multiples of {output_resolution_m}. Expected ({expected_left}, {expected_bottom}) but got ({left}, {bottom})."
+        )
+    return lower_x, lower_y
 
 
 def convert_xr_dataset_for_hec_hms_shg_nc(data: xr.Dataset, variables: List[NOAADataVariable]) -> xr.Dataset:
@@ -329,7 +363,7 @@ def write_hec_hms_shg_nc(
     output_path: str | Path,
     output_resolution_km: int,
 ) -> None:
-    """Write Vortex NetCDF with each variable's DSS-matched time range. Chunking: 72x64x64 (72-hour x 64km x 64km when timestep is 1 hour and resolution is 1km).
+    """Write a HMS-complicant NetCDF with each variable's DSS-matched time range. Output data type: float32. Output chunking: 72x64x64 (72-hour x 64km x 64km when timestep is 1 hour and resolution is 1km).
 
     Lifted (with significant mods) from: https://github.com/Dewberry/stormhub/blob/fb040218c457165e2d9c321cb4f3d722bae0ce9f/stormhub/met/storm_catalog.py#L1429-L1441
 
@@ -371,6 +405,8 @@ def write_hec_hms_shg_nc(
 
             When no NaN is stored, HMS/Vortex has no extra precipitation timestamps to import.
     """
+    output_data_type = "float32"
+
     if output_resolution_km <= 0:
         raise ValueError(f"Expected a positive output resolution, got {output_resolution_km}.")
 
@@ -388,7 +424,7 @@ def write_hec_hms_shg_nc(
     for var in variables:
         time_dimension = var.netcdf_time_dimension
         variable_data = data[var.value].rename({time_dimension: DSS_TIME_DIMENSION})
-        variable_data = reproject_to_shg(variable_data.astype("float32"), output_resolution_km)
+        variable_data, _, _ = reproject_to_shg(variable_data.astype(output_data_type), output_resolution_km)
         nc_dataset = convert_xr_dataset_for_hec_hms_shg_nc(xr.Dataset({var.value: variable_data}), [var])
         time_bounds = f"{time_dimension}{NETCDF_TIME_BOUNDS_SUFFIX}"
         nc_dataset = nc_dataset.rename({DSS_TIME_DIMENSION: time_dimension, NETCDF_TIME_BOUNDS: time_bounds})
@@ -467,14 +503,20 @@ def repair_polygon_fill_holes(geom: Polygon | MultiPolygon) -> Polygon | MultiPo
     return geom
 
 
-def get_shg_reprojection_kwargs(
-    data: xr.Dataset, output_resolution_m: float, resamp_method: rasterio.enums.Resampling
-) -> tuple[dict, int, int]:
+def get_shg_reprojection_kwargs(data: xr.Dataset | xr.DataArray, output_resolution_m: float) -> tuple[dict, int, int]:
     """Build a kwargs dict for rasterio reproject() to SHG. Handles validation, CRS transformation, and snapping to SHG grid.
 
     SHG coordinates must be snapped to an integer multiple.
     Also explicitly returns lower_x and lower_y for later SHG writing.
+    Uses nearest resampling. Other forms of resampling would require coordination with users.
+    For more details on resampling requirement, see docstring for ``write_to_dss``.
     """
+    resamp_method = rasterio.enums.Resampling.nearest
+    if resamp_method != rasterio.enums.Resampling.nearest:
+        raise ValueError(
+            f"Only nearest neighbor resampling is supported (Resampling.nearest), but got {resamp_method}."
+        )
+
     if round(output_resolution_m) != output_resolution_m:
         raise ValueError(
             f"output_resolution_m must be an integer or a float that represents an integer, but got: {output_resolution_m}"
