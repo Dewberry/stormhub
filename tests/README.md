@@ -32,7 +32,7 @@ HMS_VERSION=4.14
 ```sh
 [ -d .venv ] || python -m venv .venv
 source .venv/bin/activate
-python -m pip install "numpy<2" ".[dev]"
+python -m pip install ".[dev]"
 
 ./tests/hec_hms_integration/install_hms_${HMS_VERSION}.sh
 ./tests/hec_hms_integration/run_tests.sh ${HMS_VERSION}

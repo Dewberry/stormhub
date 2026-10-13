@@ -14,4 +14,4 @@ RUN ./install_hms_${HMS_VERSION}.sh
 # `numpy<2` is needed for now to avoid a geopandas error
 WORKDIR /app/stormhub
 COPY . .
-RUN python -m pip install "numpy<2" ".[dev]"
+RUN python -m pip install ".[dev]"
