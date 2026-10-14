@@ -5,15 +5,16 @@ Found on 10/2/2026 from: https://www.hec.usace.army.mil/confluence/hmsdocs/hmsgu
 """
 
 import datetime
+import logging
 import os
 from pathlib import Path
 
 try:
-    HMS_VERSION = os.environ["HMS_VERSION"]
-    if not HMS_VERSION.strip():
-        raise KeyError
+    HMS_VERSION = os.environ["HMS_VERSION"].strip()
 except KeyError:
-    raise KeyError("HMS_VERSION environment variable is not set")
+    HMS_VERSION = ""
+if not HMS_VERSION:
+    logging.warning("HMS_VERSION is not set")
 HMS_HOME = Path.home() / ".local/share/hec-hms" / HMS_VERSION
 
 
