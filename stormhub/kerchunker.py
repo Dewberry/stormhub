@@ -399,6 +399,17 @@ class Kerchunker:
         output_path = Path(output_dir).resolve() / output_name
 
         sources = sorted(self._collection_references, key=lambda entry: entry[0])
+        relative_sources = {
+            source_url: Path(os.path.relpath(source_path, output_path.parent)).as_posix()
+            for _, source_path, source_url, _ in sources
+        }
+        outside = [path for path in relative_sources.values() if path.startswith("../")]
+        if outside:
+            raise ValueError(
+                f"Collection Kerchunk sources must be inside the output directory {output_path.parent}, "
+                f"got: {outside[0]}"
+            )
+
         references = [reference for _, _, _, reference in sources]
         combined = copy.deepcopy(references[0])
         # Arrays may use different concat axes, so combine each array independently.
@@ -410,16 +421,6 @@ class Kerchunker:
                 )
             concatenated = concatenate_arrays(references, axis=axis, path=variable_name, check_arrays=True)
             combined["refs"].update(concatenated["refs"])
-        relative_sources = {
-            source_url: Path(os.path.relpath(source_path, output_path.parent)).as_posix()
-            for _, source_path, source_url, _ in sources
-        }
-        outside = [path for path in relative_sources.values() if path.startswith("../")]
-        if outside:
-            raise ValueError(
-                f"Collection Kerchunk sources must be inside the output directory {output_path.parent}, "
-                f"got: {outside[0]}"
-            )
 
         self._make_source_urls_relative(combined, relative_sources)
         self._write(combined, output_path, self.config.make_collection_ref)
