@@ -104,7 +104,7 @@ class ScalarComp:
             val_other = scalar_other.quantity
             diff_raw = abs(val_other - val_orig)
             diff_rel = diff_raw / abs(val_orig) if val_orig != 0 else (0.0 if diff_raw == 0 else math.inf)
-            message = f"Comparison: {self.comp_label!r} vs {other.comp_label!r}: {label_pair_orig[0]}.{label_pair_orig[1]}: {val_orig:.4f} vs {val_other:.4f}. diff_rel~{diff_rel:.2%}. diff_raw~{diff_raw:.4f}."
+            message = f"Comparison: {self.comp_label!r} vs {other.comp_label!r}: {label_pair_orig[0]}.{label_pair_orig[1]}: {val_orig:.6f} vs {val_other:.6f}. diff_rel~{diff_rel:.6%}. diff_raw~{diff_raw:.6f}."
             logging.info(message)
             if diff_raw > tol_abs or diff_rel > tol_rel:
                 self._append_error(ComparisonError(message))

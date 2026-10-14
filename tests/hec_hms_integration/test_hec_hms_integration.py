@@ -191,7 +191,7 @@ def test_hec_hms_integration_stormhub_dss(request) -> None:
         )
         try:
             hms_results_from_stormhub_direct_dss_forcing.compare_with_tolerance(
-                hms_results_from_stormhub_forcing_netcdf_converted_to_dss, tol_rel=0.01, tol_abs=1
+                hms_results_from_stormhub_forcing_netcdf_converted_to_dss, tol_rel=0.001, tol_abs=1.0
             )
         except ComparisonError as error:
             comparison_failures.append(f"Failed when comparing Stormhub Direct-DSS vs NetCDF-to-DSS:\n{error}")
@@ -204,7 +204,7 @@ def test_hec_hms_integration_stormhub_dss(request) -> None:
         hms_results_from_stormhub_forcing_netcdf = utils.check_hms_results(model, comp_label="stormhub-netcdf")
         try:
             hms_results_from_stormhub_direct_dss_forcing.compare_with_tolerance(
-                hms_results_from_stormhub_forcing_netcdf, tol_rel=0.01, tol_abs=1
+                hms_results_from_stormhub_forcing_netcdf, tol_rel=0.001, tol_abs=1.0
             )
         except ComparisonError as error:
             comparison_failures.append(f"Failed when comparing Stormhub Direct-DSS vs NetCDF:\n{error}")
