@@ -2,17 +2,30 @@
 
 from datetime import datetime, timedelta
 from enum import Enum
+import math
+from pathlib import Path
 from typing import List, Tuple, Literal, Dict
 from hecdss import HecDss, gridded_data
 import numpy as np
 from pandas import Timestamp
 import geopandas as gpd
 from geopandas import GeoDataFrame
-import rasterio
+import rasterio.enums
 import s3fs
 import xarray as xr
-from stormhub.met.consts import NOAA_AORC_S3_BASE_URL, KM_TO_M_CONVERSION_FACTOR, SHG_WKT
-from stormhub.utils import repair_polygon_fill_holes, get_shg_reprojection_kwargs
+from stormhub.met.consts import (
+    KM_TO_M_CONVERSION_FACTOR,
+    NETCDF_TIME_DIMENSION_PREFIX,
+    NOAA_AORC_S3_BASE_URL,
+    SHG_WKT,
+)
+from stormhub.utils import (
+    NetCDFConfig,
+    repair_polygon_fill_holes,
+    reproject_to_shg,
+    validate_shg,
+    write_hec_hms_shg_nc,
+)
 import logging
 
 
@@ -79,6 +92,11 @@ class NOAADataVariable(Enum):
             return self.value
 
     @property
+    def netcdf_time_dimension(self) -> str:
+        """Return the NetCDF time coordinate name for this variable."""
+        return f"{NETCDF_TIME_DIMENSION_PREFIX}{self.dss_variable_title.lower()}"
+
+    @property
     def measurement_type(self) -> MeasurementType:
         """Return measurement type."""
         if self == NOAADataVariable.APCP:
@@ -138,6 +156,9 @@ def date_range_dss_path_format(date: datetime, measurement_type: MeasurementType
 def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.Dataset:
     """Convert temperature in Kelvin to the desired output_unit. Utilizes chunking to save memory."""
     output_unit = NOAADataVariable.TMP.measurement_unit
+    output_units = {"K": "K", "DEG C": "degrees_Celsius", "DEG F": "degrees_Fahrenheit"}
+    if output_unit not in output_units:
+        raise ValueError(f"Unsupported temperature output unit {output_unit!r}.")
     data_unit = data.units
     if data_unit != "K":
         raise ValueError(f"Expected temperature data in Kelvin, got measurement unit of {data_unit} instead")
@@ -146,6 +167,8 @@ def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.D
         data_shape = data.shape
         c_degrees_difference = np.full(data_shape, 273.15)
         num_chunks = (data_shape[0] + chunk_size - 1) // chunk_size
+        if num_chunks < 1:
+            raise ValueError(f"Expected at least 1 chunk but got {num_chunks}")
 
         converted_chunks = []
 
@@ -173,6 +196,7 @@ def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.D
         # Concatenate all converted chunks along the 'time' dimension
         data = xr.concat(converted_chunks, dim="time")
 
+    data.attrs["units"] = output_units[output_unit]
     return data
 
 
@@ -312,7 +336,10 @@ def get_s3_zarr_data(
 
     s3 = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
     fileset = [s3fs.S3Map(root=path, s3=s3, check=False) for path in s3_paths]
-    ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+    try:
+        ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+    except ValueError:
+        ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=False)
 
     # Assert geographic CRS since "longitude" and "latitude" are used.
     if not ds.rio.crs.is_geographic:
@@ -371,13 +398,14 @@ def get_s3_zarr_data(
 
 def write_to_dss(
     output_dss_path: str,
-    data: xr.Dataset,
+    data: xr.DataArray,
     aoi_name: str,
     param_name: str,
     param_measurement_type: MeasurementType,
     param_measurement_unit: str,
     output_resolution_km: int,
     data_version: str,
+    data_already_shg: bool = False,
 ):
     """
     Write geospatial data to a DSS file while transforming the data to fit DSS conventions.
@@ -398,36 +426,16 @@ def write_to_dss(
         parameter_measurement_type: The type of measurement type of the parameter
         output_resolution_km: The resolution for the data in km
         data_version: Represents where the data comes from (e.g. "AORC")
+        data_already_shg: If True, assume that the data is already in SHG, do some light validation of that assumption, and avoid reprojecting it.
     """
-    resamp_method = rasterio.enums.Resampling.nearest
-    if resamp_method != rasterio.enums.Resampling.nearest:
-        raise ValueError(
-            f"Only nearest neighbor resampling is supported (Resampling.nearest), but got {resamp_method}."
-        )
-
     dss = HecDss(output_dss_path)
     output_resolution_m = output_resolution_km * KM_TO_M_CONVERSION_FACTOR
 
-    logging.info(f"reprojecting dataset")
-    times = data.time.values
-
-    reproject_kwargs, lower_x, lower_y = get_shg_reprojection_kwargs(data, output_resolution_m, resamp_method)
-
-    if len(times) <= 144:
-        data: xr.DataArray = data.rio.reproject(**reproject_kwargs)
+    if data_already_shg:
+        logging.debug("Assuming data is already in SHG. Not reprojecting.")
+        lower_x, lower_y = validate_shg(data)
     else:
-        # For larger datasets, chunking is used to avoid memory issues
-        logging.info(f"Chunking dataset for reprojection")
-        time_chunk_size = 144
-        reprojected_chunks = []
-
-        for i in range(0, len(times), time_chunk_size):
-            chunk_times = times[i : i + time_chunk_size]
-            chunk = data.sel(time=chunk_times)
-            chunk = chunk.rio.reproject(**reproject_kwargs)
-            reprojected_chunks.append(chunk)
-
-        data = xr.concat(reprojected_chunks, dim="time")
+        data, lower_x, lower_y = reproject_to_shg(data, output_resolution_km)
 
     for time_step in data.time:
         time_step_data = data.sel(time=time_step)
@@ -463,6 +471,37 @@ def write_to_dss(
     dss.close()
 
 
+def fetch_aorc_data(
+    storm_start: datetime,
+    variable_duration_map: Dict[NOAADataVariable, int],
+    aoi_geometry_path: str,
+) -> xr.Dataset:
+    """
+    Fetch AORC data from S3 for a given storm event and area of interest.
+
+    Args:
+        storm_start: The start datetime of the storm.
+        variable_duration_map: A mapping of NOAA data variables to their respective durations in hours.
+        aoi_geometry_path: Path to the geopackage/geojson containing the area of interest geometry.
+
+    Returns
+    -------
+        xr.Dataset: The fetched AORC dataset clipped to the AOI and time range.
+    """
+    all_variables = list(variable_duration_map.keys())
+    min_start = storm_start + timedelta(hours=1)  # make exclusive
+    max_end = storm_start + timedelta(hours=max(variable_duration_map.values()))
+    aorc_paths = get_aorc_paths(min_start, max_end)
+    aoi_gdf = gpd.read_file(aoi_geometry_path)
+    voi_keys = [v.value for v in all_variables]
+
+    logging.info("Getting aorc data")
+    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, min_start, max_end, voi_keys)
+    logging.info("Successfully retrieved aorc data")
+
+    return aorc_data
+
+
 def noaa_zarr_to_dss(
     output_dss_path: str,
     aoi_geometry_gpkg_path: str,
@@ -470,22 +509,29 @@ def noaa_zarr_to_dss(
     storm_start: datetime,
     variable_duration_map: Dict[NOAADataVariable, int],
     output_resolution_km: int,
-):
-    """Given a geometry and datetime information about a storm, writes variables of interest from NOAA dataset to DSS."""
-    # arrange parameters
-    all_variables = list(variable_duration_map.keys())
-    min_start = storm_start + timedelta(hours=1)  # make exclusive
-    max_end = storm_start + timedelta(hours=max(variable_duration_map.values()))
-    aorc_paths = get_aorc_paths(min_start, max_end)
-    aoi_gdf = gpd.read_file(aoi_geometry_gpkg_path)
-    voi_keys = [v.value for v in all_variables]
+    nc_config: NetCDFConfig | None = None,
+) -> Path | None:
+    """
+    Given a geometry and datetime information about a storm, writes AORC variables of interest from NOAA zarr dataset to DSS.
 
-    # get aorc data
-    logging.info("Getting aorc data")
-    aorc_data = get_s3_zarr_data(aorc_paths, aoi_gdf, min_start, max_end, voi_keys)
-    logging.info("Successfully retrieved aorc data")
+    Args:
+        output_dss_path: Path to the output DSS file.
+        aoi_geometry_gpkg_path: Path to the geopackage/geojson containing the area of interest geometry.
+        aoi_name: The name of the area of interest (AOI). Used in dss path construction.
+        storm_start: The start datetime of the storm.
+        variable_duration_map: A mapping of NOAA data variables to their respective durations in hours.
+        output_resolution_km: The spatial resolution for the output data in kilometers.
+        nc_config: NetCDF export and Kerchunk reference settings.
 
-    # write to dss
+    Returns
+    -------
+        The NetCDF output path when configured for NetCDF export. Otherwise None.
+    """
+    if nc_config is None:
+        nc_config = NetCDFConfig()
+    aorc_data = fetch_aorc_data(storm_start, variable_duration_map, aoi_geometry_gpkg_path)
+
+    var_data_by_var = {}
     for data_variable, duration in variable_duration_map.items():
         var_start = storm_start + timedelta(hours=1)
         var_end = storm_start + timedelta(hours=duration)
@@ -495,6 +541,19 @@ def noaa_zarr_to_dss(
             logging.info("converting temperature dataset")
             data = convert_temperature_dataset(data)
             logging.info("Successfully converted temperature dataset")
+        var_data_by_var[data_variable] = data
+        del data
+
+    # Write to NetCDF
+    if nc_config.write_netcdf:
+        nc_output_path = Path(output_dss_path).with_suffix(".nc")
+        write_hec_hms_shg_nc(var_data_by_var, nc_output_path, output_resolution_km)
+    else:
+        logging.info(f"Skipping export to NetCDF.")
+        nc_output_path = None
+
+    # write to dss
+    for data_variable, data in var_data_by_var.items():
         logging.info("writing to dss")
         write_to_dss(
             output_dss_path=output_dss_path,
@@ -506,3 +565,6 @@ def noaa_zarr_to_dss(
             output_resolution_km=output_resolution_km,
             data_version="AORC",
         )
+        del data
+
+    return nc_output_path

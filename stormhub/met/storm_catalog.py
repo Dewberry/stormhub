@@ -20,11 +20,22 @@ import xarray as xr
 import geopandas as gpd
 
 import matplotlib
+import numpy as np
 import zarr
 from stormhub.hydro_domain import HydroDomain
+from stormhub.kerchunker import (
+    Kerchunker,
+    create_kerchunker_for_stormhub_nc_forcing,
+    register_storm_netcdf,
+)
 from stormhub.logger import initialize_logger
 from stormhub.met.analysis import StormAnalyzer
 from stormhub.met.aorc.aorc import AORCItem, valid_spaces_item
+from stormhub.met.consts import (
+    DSS_ASSET_DESCRIPTION,
+    DSS_ASSET_MEDIA_TYPE,
+    DSS_ASSET_ROLES,
+)
 from stormhub.met.zarr_to_dss import (
     get_aorc_paths,
     get_s3_zarr_data,
@@ -33,8 +44,10 @@ from stormhub.met.zarr_to_dss import (
     save_da_as_geotiff,
 )
 from stormhub.utils import (
+    NetCDFConfig,
     STORMHUB_REF_LINK,
     StacPathManager,
+    add_storm_netcdf_asset,
     generate_date_range,
     validate_config,
 )
@@ -1215,10 +1228,10 @@ def get_events_collection(catalog: pystac.Catalog):
 def get_transposition_item(catalog: pystac.Catalog, use_valid_region: bool = False):
     """Find transposition region item from given Catalog."""
     for item in catalog.get_all_items():
-        if "transpo" in item.id:
-            if use_valid_region and "valid" in item.id:
+        if "transpo" in item.id.lower():
+            if use_valid_region and "valid" in item.id.lower():
                 return item
-            elif not use_valid_region and "valid" not in item.id:
+            elif not use_valid_region and "valid" not in item.id.lower():
                 return item
 
     raise ValueError(f"Could not find transposition region item in catalog: {catalog.id}.")
@@ -1231,18 +1244,24 @@ def add_storm_dss_files(
     variable_duration_map: Dict[NOAADataVariable, int] = None,
     dss_output_dir: str = None,
     output_resolution_km: int = 1,
+    nc_config: NetCDFConfig | None = None,
 ):
     """
-    Add dss files containing meteorological data to all storm items in events collection.
+    Write new DSS files and add associated catalog assets to all storm items in the events collection. Optionally, also write equivalent NetCDF files and add associated assets.
 
     Args:
         catalog (Union[str | Catalog]): The storm catalog or path to the catalog file.
         aoi_name (str, optional): Optional aoi name for part B of dss file. If None then the catalog ID is used.
         use_valid_region (bool, optional): If True, the gridded DSS data will be confined to the valid transposition region. If False, the the data uses the entire transposition region. Defaults to False.
         variable_duration_map (Dict[NOAADataVariable, int], Optional): Optional variable map to include multiple variables and/or different durations for dss creation. If None is given, only precipitation is used at the duration between the storm items start and end time.
-        dss_output_dir (str, optional): Optional output directory for dss files. If None, dss files are saved in the same directory as the associated storm item.
-
+        dss_output_dir (str, optional): Optional output directory for DSS and NetCDF files. If None, files are saved in the same directory as the associated storm item.
+        output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). Default: 1.
+        nc_config (NetCDFConfig, optional): Configuration for NetCDF export and related Kerchunking.
     """
+    if nc_config is None:
+        nc_config = NetCDFConfig()
+    kerchunker = create_kerchunker_for_stormhub_nc_forcing(nc_config.kerchunk_config)
+
     if isinstance(catalog, str):
         catalog = pystac.read_file(catalog)
 
@@ -1253,6 +1272,7 @@ def add_storm_dss_files(
     if aoi_name is None:
         aoi_name = catalog.id
 
+    errors = []
     for item in events_collection.get_items():
         try:
             if dss_output_dir:
@@ -1269,32 +1289,52 @@ def add_storm_dss_files(
             dss_fn = f"{start_date}.dss"
             dss_output_path = os.path.join(item_dir, dss_fn)
 
-            if variable_duration_map is None:
+            item_duration_map = variable_duration_map
+            if item_duration_map is None:
                 full_end_date = item.properties["end_datetime"]
                 end_date_dt = datetime.strptime(full_end_date, "%Y-%m-%dT%H:%M:%SZ")
                 time_difference = end_date_dt - start_date_dt
                 duration_hours = time_difference.total_seconds() / 3600
 
-                variable_duration_map = {NOAADataVariable.APCP: duration_hours}
+                item_duration_map = {NOAADataVariable.APCP: duration_hours}
 
-            noaa_zarr_to_dss(
-                dss_output_path, transpo_href, aoi_name, start_date_dt, variable_duration_map, output_resolution_km
+            nc_written = noaa_zarr_to_dss(
+                dss_output_path,
+                transpo_href,
+                aoi_name,
+                start_date_dt,
+                item_duration_map,
+                output_resolution_km,
+                nc_config=nc_config,
             )
-
+            netcdf_error = register_storm_netcdf(item, nc_written, dss_output_path, kerchunker)
+            if netcdf_error is not None:
+                errors.append(netcdf_error)
             item.add_asset(
                 dss_fn,
                 Asset(
                     dss_output_path,
                     dss_fn,
-                    description="DSS file containing meteorological data for storm period.",
-                    media_type="application/x-dss",
-                    roles="data",
+                    description=DSS_ASSET_DESCRIPTION,
+                    media_type=DSS_ASSET_MEDIA_TYPE,
+                    roles=DSS_ASSET_ROLES,
                 ),
             )
             item.save_object()
             logging.info(f"Successfully saved storm dss file to: {dss_output_path}")
         except Exception as e:
             logging.error(f"Could not create dss file for item: {item.id} with error: {e}")
+            if (
+                nc_config.kerchunk_config.make_individual_refs is not None
+                or nc_config.kerchunk_config.make_collection_ref is not None
+            ):
+                errors.append(e)
+
+    if errors:
+        if nc_config.kerchunk_config.make_collection_ref is not None:
+            raise RuntimeError(f"Collection Kerchunk output skipped because {len(errors)} error(s) occurred: {errors}")
+        raise RuntimeError(errors)
+    kerchunker.finish(events_collection)
 
 
 def avg_annual_max_grids(zarr_path: str, normal_precip_grid_path: str = "normalized_precip.tif"):
@@ -1387,7 +1427,8 @@ def create_normal_precip(
                     max_grid = xr.where(da > max_grid, da, max_grid)
 
             logging.info(f"Saving max grid for {year} into group {year}")
-            max_grid.to_zarr(ams_zarr_path, group=str(year), mode="a")
+            # zarr_format=2 needed because kerchunk 0.2.10 requires zarr 3. stormhub continues writing zarr v2.
+            max_grid.to_zarr(ams_zarr_path, group=str(year), mode="a", zarr_format=2)
         except Exception as e:
             logging.error(f"Error processing year {year}: {e}")
 
