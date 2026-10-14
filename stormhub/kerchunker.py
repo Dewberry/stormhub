@@ -1,5 +1,7 @@
 """Write and read kerchunk references as .json.zst or .parquet, as individual NetCDF file sidecars or for aggregated datasets. Attach to STAC items.
 
+Requires Python 3.11+ for Kerchunk support.
+
 Writing: see ``KerchunkConfig``, ``Kerchunker``, ``create_kerchunker_for_stormhub_nc_forcing``, and ``register_storm_netcdf``.
 Reading: see ``kerchunk_reader`` and ``kerchunk_reader_options``.
 """
@@ -10,6 +12,7 @@ import copy
 import json
 import logging
 import os
+import sys
 import tempfile
 from contextlib import closing
 from dataclasses import dataclass, replace
@@ -21,9 +24,6 @@ import fsspec
 import pystac
 import xarray as xr
 import zstandard
-from kerchunk.combine import concatenate_arrays
-from kerchunk.df import refs_to_dataframe
-from kerchunk.hdf import SingleHdf5ToZarr
 from pystac import Asset
 from stormhub.met.consts import (
     NETCDF_TIME_DIMENSION_PREFIX,
@@ -33,6 +33,19 @@ from stormhub.met.consts import (
 )
 
 KERCHUNK_JSON_ZSTD_LEVEL = 8
+KERCHUNK_SUPPORTED = sys.version_info >= (3, 11)
+
+if KERCHUNK_SUPPORTED:
+    from kerchunk.combine import concatenate_arrays
+    from kerchunk.df import refs_to_dataframe
+    from kerchunk.hdf import SingleHdf5ToZarr
+else:
+    logging.info(f"Python version {sys.version_info} detected. Kerchunk not suported (requires version 3.11+)")
+
+
+def _require_kerchunk_support() -> None:
+    if not KERCHUNK_SUPPORTED:
+        raise NotImplementedError("Kerchunk references require Python 3.11 or newer.")
 
 
 class KerchunkFormat(str, Enum):
@@ -97,6 +110,7 @@ def kerchunk_reader(storage_options: dict, **open_zarr_kwargs) -> xr.Dataset:
 
     ``open_zarr_kwargs`` are passed to ``xr.open_zarr``.
     """
+    _require_kerchunk_support()
     open_zarr_kwargs.setdefault("consolidated", False)
     return xr.open_zarr("reference://", storage_options=storage_options, **open_zarr_kwargs)
 
@@ -125,6 +139,7 @@ def kerchunk_reader_options(
         storage_options: fsspec options for reading the reference itself.
         target_storage_options: fsspec options for reading the NetCDF files, such as credentials or ``anon``.
     """
+    _require_kerchunk_support()
     reference_href = str(reference_href).rstrip("/")
     if not reference_href.endswith((".json.zst", ".parquet")):
         raise ValueError(f"Expected a .json.zst file or .parquet directory, got: {reference_href}")
@@ -215,6 +230,8 @@ class KerchunkConfig:
 
     def __post_init__(self) -> None:
         """Validate that the selected reference formats are supported."""
+        if not KERCHUNK_SUPPORTED and (self.make_individual_refs is not None or self.make_collection_ref is not None):
+            _require_kerchunk_support()
         for field_name, scope in (("make_individual_refs", "Individual"), ("make_collection_ref", "Collection")):
             output_format = getattr(self, field_name)
             if output_format is None:
@@ -256,6 +273,8 @@ class Kerchunker:
         """
         if config.make_collection_ref is not None and config.collection_axes is None:
             raise ValueError("Collection Kerchunk references require a collection_axes callback.")
+        if config.make_individual_refs is not None or config.make_collection_ref is not None:
+            _require_kerchunk_support()
         self.config = config
         self._collection_references: list[tuple[str, Path, str, dict]] = []
         self._collection_axes: dict[str, int] | None = None
