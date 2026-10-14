@@ -264,6 +264,8 @@ def validate_shg(data: xr.Dataset | xr.DataArray) -> tuple[int, int]:
     if output_resolution_m <= 0 or not math.isclose(abs(resolution_y), output_resolution_m):
         raise ValueError(f"Expected square SHG pixels with positive resolution; got {data.rio.resolution()}.")
 
+    # Allowed SHG pixel resolutions in meters,
+    # from: https://www.hec.usace.army.mil/confluence/hmsdocs/hmsum/4.8/geographic-information/coordinate-reference-systems
     shg_res_choices = (10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
     for res in (resolution_x, resolution_y):
         if abs(res) not in shg_res_choices:
