@@ -257,8 +257,8 @@ def check_hms_results(model: Path, comp_label: str) -> ScalarComp:
     scalars: list[Scalar] = []
     for param in c.HMS_PARAMETERS_TO_COMPARE:
         values = np.asarray(_result_values(model, param))
-        if not np.isfinite(values).all() and (values >= 0).all() and (values > 0).any():
-            raise ValueError(f"Unexpected non-finite or negative values for param {param}: {values}")
+        if not (np.isfinite(values).all() and (values >= 0).all() and (values > 0).any()):
+            raise ValueError(f"Unexpected non-finite, negative, or all-zero values for param {param}: {values}")
         for np_method in c.NP_STATS_METHODS_TO_COMPARE:
             value = float(getattr(np, f"nan{np_method}")(values))
             logging.info("Parameter %s for %s: %s=%s for model %s", param, comp_label, np_method, value, model)
