@@ -2,6 +2,7 @@
 
 import json
 import logging
+import multiprocessing
 import os
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
@@ -841,8 +842,12 @@ def multi_processor(
     """
     if use_threads:
         executor_class = ThreadPoolExecutor
+        mp_context = None
     else:
+        # Use 'spawn' to avoid fork+asyncio deadlock: s3fs/fsspec runs a background
+        # asyncio thread whose locks are inherited locked by forked child processes.
         executor_class = ProcessPoolExecutor
+        mp_context = multiprocessing.get_context("spawn")
 
     if not os.path.exists(output_csv):
         with open(output_csv, "w", encoding="utf-8") as f:
@@ -855,7 +860,11 @@ def multi_processor(
     batch_size = max(min(num_workers // 3, 10), 2) if use_threads else num_workers
     logging.info("Processing in batches of %d", batch_size)
 
-    with executor_class(max_workers=num_workers) as executor:
+    executor_kwargs = {"max_workers": num_workers}
+    if mp_context is not None:
+        executor_kwargs["mp_context"] = mp_context
+
+    with executor_class(**executor_kwargs) as executor:
         for i in range(0, len(event_dates), batch_size):
             batch = event_dates[i : i + batch_size]
             futures = [executor.submit(func, catalog, date, storm_duration) for date in batch]
@@ -988,10 +997,13 @@ def create_items(
 
     if use_threads:
         executor_class = ThreadPoolExecutor
+        mp_context = None
         # Force a non‑interactive backend (Agg) when threading.
         matplotlib.use("Agg")
     else:
+        # Use 'spawn' to avoid fork+asyncio deadlock from s3fs background threads.
         executor_class = ProcessPoolExecutor
+        mp_context = multiprocessing.get_context("spawn")
 
     storm_data = [(e["storm_date"], e["por_rank"]) for e in event_dates]
     existing_item_ids = set()
@@ -1013,7 +1025,11 @@ def create_items(
 
     count = len(storm_data)
 
-    with executor_class(max_workers=num_workers) as executor:
+    executor_kwargs = {"max_workers": num_workers}
+    if mp_context is not None:
+        executor_kwargs["mp_context"] = mp_context
+
+    with executor_class(**executor_kwargs) as executor:
         futures = [
             executor.submit(
                 storm_search,
