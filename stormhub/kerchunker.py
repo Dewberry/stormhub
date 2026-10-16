@@ -40,12 +40,12 @@ if KERCHUNK_SUPPORTED:
     from kerchunk.df import refs_to_dataframe
     from kerchunk.hdf import SingleHdf5ToZarr
 else:
-    logging.info(f"Python version {sys.version_info} detected. Kerchunk not suported (requires version 3.11+)")
+    logging.info(f"Python version {sys.version_info} detected. Kerchunk not supported (requires Python version 3.11+)")
 
 
 def _require_kerchunk_support() -> None:
     if not KERCHUNK_SUPPORTED:
-        raise NotImplementedError("Kerchunk references require Python 3.11 or newer.")
+        raise NotImplementedError("Kerchunk not supported (requires Python version 3.11+)")
 
 
 class KerchunkFormat(str, Enum):
@@ -406,8 +406,7 @@ class Kerchunker:
         outside = [path for path in relative_sources.values() if path.startswith("../")]
         if outside:
             raise ValueError(
-                f"Collection Kerchunk sources must be inside the output directory {output_path.parent}, "
-                f"got: {outside[0]}"
+                f"Collection Kerchunk sources must be inside the output directory {output_path.parent}, but got: {outside[0]}"
             )
 
         references = [reference for _, _, _, reference in sources]
@@ -499,8 +498,6 @@ class Kerchunker:
     @staticmethod
     def _sidecar_href(source_href: str, sidecar_name: str) -> str:
         """Compose a string to make a sidecar href beside a source href.
-
-        This only builds the href; it does not create the object.
 
         Parameters
         ----------

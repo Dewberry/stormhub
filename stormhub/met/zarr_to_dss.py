@@ -512,7 +512,23 @@ def noaa_zarr_to_dss(
     nc_config: NetCDFConfig | None = None,
 ) -> Path | None:
     """
-    Given a geometry and datetime information about a storm, writes AORC variables of interest from NOAA zarr dataset to DSS.
+    Given a geometry and datetime information about a storm, writes AORC variables of interest from NOAA zarr dataset to DSS (and optionally to NetCDF with or without Kerchunk).
+
+    TODO:
+        See: https://github.com/Dewberry/stormhub/pull/46#discussion_r4275680550
+
+        This should be refactored to achieve 3 goals:
+
+        1. Rename this to ``noaa_zarr_to_disk`` and add clearer distinction between NetCDF writing and DSS writing.
+        Currently DSS writing always occurs and NetCDF is opt-in. Both should be opt-in (user must choose 1 or more).
+
+        2. If both writers support streaming to disk in chunks, then do that while chunked reprojection is occurring
+        rather than collecting all the reprojected arrays in memory before flushing them to disk. The chunked reprojection
+        is already implemented.
+
+        3. When user opts-in for both DSS and NetCDF export, ensure that reprojection of raw data to SHG only occurs
+        once per variable. Currently the DSS writer and the NetCDF writer both share the same safe reprojection logic,
+        but they each call it separately.
 
     Args:
         output_dss_path: Path to the output DSS file.
