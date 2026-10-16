@@ -567,4 +567,5 @@ def noaa_zarr_to_dss(
         )
         del data
 
+    aorc_data.close()
     return nc_output_path
