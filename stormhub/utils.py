@@ -458,8 +458,11 @@ def write_hec_hms_shg_nc(
         encoding[time_dimension] = time_encoding
         encoding[f"{time_dimension}{NETCDF_TIME_BOUNDS_SUFFIX}"] = time_encoding
     output_path = Path(output_path)
+    output_path.unlink(missing_ok=True)
     logging.info("Writing: %s", output_path)
-    data.to_netcdf(output_path, engine="h5netcdf", encoding=encoding)
+    temporary_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
+    data.to_netcdf(temporary_path, engine="h5netcdf", encoding=encoding)
+    temporary_path.replace(output_path)
 
 
 def repair_polygon_fill_holes(geom: Polygon | MultiPolygon) -> Polygon | MultiPolygon:

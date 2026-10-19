@@ -313,15 +313,37 @@ class Kerchunker:
         return tuple(Kerchunker.reference_path(source_path, output_format) for output_format in KerchunkFormat)
 
     def collection_reference_paths(self, collection: pystac.Collection) -> tuple[Path, ...]:
-        """Return both supported collection reference paths for a collection."""
+        """Return both supported collection reference paths for a collection.
+
+        These conditionals help cleanup locate prior references, including outputs left by an interrupted run.
+
+        An explicit ``collection_output_dir`` selects the cleanup directory regardless of disk state.
+        Without it, a local collection-reference asset selects its parent so a rebuild can remove the existing reference.
+
+        Otherwise, a local collection JSON href supplies the default co-located directory.
+
+        Remote-only catalogs without a configured output directory return no paths.
+        """
         output_dir = self.config.collection_output_dir
+        existing_asset = collection.assets.get(self.config.collection_asset_key)
+
+        if output_dir is None and existing_asset is not None:
+            existing_href = existing_asset.get_absolute_href()
+            if existing_href and not existing_href.startswith(("s3://", "http://", "https://")):
+                output_dir = Path(existing_href).parent
+
         if output_dir is None:
             collection_href = collection.get_self_href()
             if not collection_href or collection_href.startswith(("s3://", "http://", "https://")):
                 return ()
             output_dir = Path(collection_href).parent
+
         output_dir = Path(output_dir).resolve()
-        return tuple(output_dir / f"{collection.id}.kerchunk.{output_format.value}" for output_format in KerchunkFormat)
+
+        reference_paths = []
+        for output_format in KerchunkFormat:
+            reference_paths.append(output_dir / f"{collection.id}.kerchunk.{output_format.value}")
+        return tuple(reference_paths)
 
     def add(
         self,
@@ -518,6 +540,7 @@ class Kerchunker:
                 with zstandard.open(temporary_path, mode="wt", cctx=compressor, encoding="utf-8") as output:
                     json.dump(references, output, separators=(",", ":"))
             elif output_format is KerchunkFormat.PARQUET:
+                logging.info("Writing collection-level Kerchunk reference: %s", output_path)
                 refs_to_dataframe(references, str(temporary_path))
             else:
                 raise ValueError(f"Unsupported Kerchunk output format: {output_format!r}")

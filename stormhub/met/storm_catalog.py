@@ -1246,6 +1246,7 @@ def add_storm_dss_files(
     dss_output_dir: str = None,
     output_resolution_km: int = 1,
     nc_config: NetCDFConfig | None = None,
+    skip_grids_if_exist: bool = False,
 ):
     """
     Write new DSS files and add associated catalog assets to all storm items in the events collection. Optionally, also write equivalent NetCDF files and add associated assets.
@@ -1258,6 +1259,7 @@ def add_storm_dss_files(
         dss_output_dir (str, optional): Optional output directory for DSS and NetCDF files. If None, files are saved in the same directory as the associated storm item.
         output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). Default: 1.
         nc_config (NetCDFConfig, optional): Configuration for NetCDF export and related Kerchunking.
+        skip_grids_if_exist (bool, optional): Skip grids (DSS and NetCDF) only when all requested output files already exist. Otherwise rewrite them (as configured). Defaults: False.
     """
     if nc_config is None:
         nc_config = NetCDFConfig()
@@ -1310,6 +1312,7 @@ def add_storm_dss_files(
                 item_duration_map,
                 output_resolution_km,
                 nc_config=nc_config,
+                skip_grids_if_exist=skip_grids_if_exist,
             )
             netcdf_error = register_storm_netcdf(item, nc_written, dss_output_path, kerchunker)
             if netcdf_error is not None:
@@ -1325,7 +1328,6 @@ def add_storm_dss_files(
                 ),
             )
             item.save_object()
-            logging.info(f"Successfully saved storm dss file to: {dss_output_path}")
         except Exception as e:
             logging.error(f"Could not create dss file for item: {item.id} with error: {e}")
             if (

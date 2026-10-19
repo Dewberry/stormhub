@@ -94,13 +94,14 @@ def stormhub_netcdf_to_stormhub_dss(
     output_resolution_km: int,
 ) -> None:
     """Write SHG NetCDF precipitation and temperature grids to DSS with hecdss."""
+    temporary_path = output_dss_path.with_name(f"{output_dss_path.name}.tmp.dss")
+
+    output_dss_path.unlink(missing_ok=True)
+    temporary_path.unlink(missing_ok=True)
+
     with xr.open_dataset(netcdf_path, engine="h5netcdf") as source:
         data = source.load()
-
     crs_wkt = data["crs"].attrs["crs_wkt"]
-
-    logging.debug("Deleting if exists: %s", output_dss_path)
-    output_dss_path.unlink(missing_ok=True)
 
     for var in (NOAADataVariable.APCP, NOAADataVariable.TMP):
         variable_data = data[var.dss_variable_title]
@@ -109,7 +110,7 @@ def stormhub_netcdf_to_stormhub_dss(
             variable_data = variable_data.rename({nc_time_dimension: DSS_TIME_DIMENSION})
         variable_data = variable_data.rio.set_spatial_dims(x_dim="x", y_dim="y").rio.write_crs(crs_wkt)
         write_to_dss(
-            output_dss_path=str(output_dss_path),
+            output_dss_path=str(temporary_path),
             data=variable_data,
             aoi_name=aoi_name,
             param_name=var.dss_variable_title,
@@ -119,6 +120,7 @@ def stormhub_netcdf_to_stormhub_dss(
             data_version="AORC",
             data_already_shg=True,
         )
+    temporary_path.replace(output_dss_path)
 
 
 def configure_model_to_use_stormhub_met_forcing(model: Path, resolution_km: float, netcdf: bool = False) -> None:
