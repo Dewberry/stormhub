@@ -13,6 +13,7 @@ from geopandas import GeoDataFrame
 import rasterio.enums
 import s3fs
 import xarray as xr
+from stormhub.kerchunker import Kerchunker, delete_if_exists
 from stormhub.met.consts import (
     KM_TO_M_CONVERSION_FACTOR,
     NETCDF_TIME_DIMENSION_PREFIX,
@@ -410,6 +411,9 @@ def write_to_dss(
     """
     Write geospatial data to a DSS file while transforming the data to fit DSS conventions.
 
+    Existing records are note deleted except when replaced by one with the same (internal) DSS path.
+    Callers should delete the DSS file before calling this if they are wishing to fully overwrite the file.
+
     **Nearest neighbor resampling is used.**
     **If it is desired to change this to a resampling method that involves interpolation**:
         The pre-processes upstream of this function would need to be updated to
@@ -545,6 +549,11 @@ def noaa_zarr_to_dss(
     """
     if nc_config is None:
         nc_config = NetCDFConfig()
+    nc_output_path = Path(output_dss_path).with_suffix(".nc")
+    output_paths = [Path(output_dss_path), nc_output_path, *Kerchunker.source_reference_paths(nc_output_path)]
+    for output_path in output_paths:
+        delete_if_exists(output_path)
+
     aorc_data = fetch_aorc_data(storm_start, variable_duration_map, aoi_geometry_gpkg_path)
 
     var_data_by_var = {}
@@ -562,7 +571,6 @@ def noaa_zarr_to_dss(
 
     # Write to NetCDF
     if nc_config.write_netcdf:
-        nc_output_path = Path(output_dss_path).with_suffix(".nc")
         write_hec_hms_shg_nc(var_data_by_var, nc_output_path, output_resolution_km)
     else:
         logging.info(f"Skipping export to NetCDF.")

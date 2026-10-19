@@ -26,6 +26,7 @@ from stormhub.hydro_domain import HydroDomain
 from stormhub.kerchunker import (
     Kerchunker,
     create_kerchunker_for_stormhub_nc_forcing,
+    delete_if_exists,
     register_storm_netcdf,
 )
 from stormhub.logger import initialize_logger
@@ -1266,6 +1267,9 @@ def add_storm_dss_files(
         catalog = pystac.read_file(catalog)
 
     events_collection = get_events_collection(catalog)
+    for reference_path in kerchunker.collection_reference_paths(events_collection):
+        delete_if_exists(reference_path)
+
     transpo_item = get_transposition_item(catalog, use_valid_region)
     transpo_href = transpo_item.get_self_href()
 

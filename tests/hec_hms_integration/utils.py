@@ -98,6 +98,10 @@ def stormhub_netcdf_to_stormhub_dss(
         data = source.load()
 
     crs_wkt = data["crs"].attrs["crs_wkt"]
+
+    logging.debug("Deleting if exists: %s", output_dss_path)
+    output_dss_path.unlink(missing_ok=True)
+
     for var in (NOAADataVariable.APCP, NOAADataVariable.TMP):
         variable_data = data[var.dss_variable_title]
         nc_time_dimension = var.netcdf_time_dimension

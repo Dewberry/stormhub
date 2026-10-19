@@ -12,6 +12,7 @@ import copy
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 from contextlib import closing
@@ -53,6 +54,16 @@ class KerchunkFormat(str, Enum):
 
     JSON = "json.zst"
     PARQUET = "parquet"
+
+
+def delete_if_exists(path: str | Path) -> None:
+    """Delete a file or directory if it exists, logging the attempt."""
+    path = Path(path)
+    logging.debug("Deleting if exists: %s", path)
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def create_kerchunker_for_stormhub_nc_forcing(config: KerchunkConfig) -> Kerchunker:
@@ -296,6 +307,22 @@ class Kerchunker:
         source_path = Path(source_path)
         return source_path.with_name(f"{source_path.stem}.kerchunk.{output_format.value}")
 
+    @staticmethod
+    def source_reference_paths(source_path: str | Path) -> tuple[Path, ...]:
+        """Return both supported reference sidecar paths for a source file."""
+        return tuple(Kerchunker.reference_path(source_path, output_format) for output_format in KerchunkFormat)
+
+    def collection_reference_paths(self, collection: pystac.Collection) -> tuple[Path, ...]:
+        """Return both supported collection reference paths for a collection."""
+        output_dir = self.config.collection_output_dir
+        if output_dir is None:
+            collection_href = collection.get_self_href()
+            if not collection_href or collection_href.startswith(("s3://", "http://", "https://")):
+                return ()
+            output_dir = Path(collection_href).parent
+        output_dir = Path(output_dir).resolve()
+        return tuple(output_dir / f"{collection.id}.kerchunk.{output_format.value}" for output_format in KerchunkFormat)
+
     def add(
         self,
         item: pystac.Item,
@@ -475,11 +502,13 @@ class Kerchunker:
         -------
             The destination path.
 
-        ``FileExistsError`` is raised if the output already exists.
+        Existing output (Parquet or JSON) is deleted before being rewritten..
         A temporary directory is used during serialization step, adjacent to the destination.
         """
-        if output_path.exists():
-            raise FileExistsError(output_path)
+        # JIC, only delete .parquet or .json.zst extensions.
+        if not output_path.name.endswith((".parquet", ".json.zst")):
+            raise ValueError(f"Unexpected output file extension: {output_path}")
+        delete_if_exists(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory(dir=output_path.parent, prefix=f".{output_path.name}.") as temp_dir:

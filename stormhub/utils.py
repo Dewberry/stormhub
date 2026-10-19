@@ -457,6 +457,7 @@ def write_hec_hms_shg_nc(
         time_dimension = var.netcdf_time_dimension
         encoding[time_dimension] = time_encoding
         encoding[f"{time_dimension}{NETCDF_TIME_BOUNDS_SUFFIX}"] = time_encoding
+    output_path = Path(output_path)
     logging.info("Writing: %s", output_path)
     data.to_netcdf(output_path, engine="h5netcdf", encoding=encoding)
 
