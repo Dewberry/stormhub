@@ -413,55 +413,46 @@ def write_hec_hms_shg_nc(
         raise ValueError(f"Expected a positive output resolution, got {output_resolution_km}.")
 
     variables = list(var_data_by_var)
-    # Build the per-variable time axes required to preserve DSS record ranges.
-    data = xr.Dataset(
-        {
-            var.value: variable_data.rename({DSS_TIME_DIMENSION: var.netcdf_time_dimension})
-            for var, variable_data in var_data_by_var.items()
-        }
-    )
-    nc_datasets = []
     # lifted logic for float32, reprojection to SHG, and HMS/Vortex formatting (modded slightly to use true SHG WKT (SHG_WKT) instead of EPSG:5070).
     # Modded logic for time dimension name (using separate time axes for each variable).
-    for var in variables:
+    output_path = Path(output_path)
+    output_path.unlink(missing_ok=True)
+    logging.info("Writing: %s", output_path)
+    temporary_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
+
+    for index, var in enumerate(variables):
         time_dimension = var.netcdf_time_dimension
-        variable_data = data[var.value].rename({time_dimension: DSS_TIME_DIMENSION})
+        variable_data = var_data_by_var[var]
         variable_data, _, _ = reproject_to_shg(variable_data.astype(output_data_type), output_resolution_km)
         nc_dataset = convert_xr_dataset_for_hec_hms_shg_nc(xr.Dataset({var.value: variable_data}), [var])
         time_bounds = f"{time_dimension}{NETCDF_TIME_BOUNDS_SUFFIX}"
         nc_dataset = nc_dataset.rename({DSS_TIME_DIMENSION: time_dimension, NETCDF_TIME_BOUNDS: time_bounds})
         nc_dataset[time_dimension].attrs["bounds"] = time_bounds
-        nc_datasets.append(nc_dataset)
-
-    data = xr.merge(nc_datasets, compat="no_conflicts")
-    # Lifted logic for compression, time units, and file-writing.
-    # Modded logic for per-variable time axes.
-    encoding = {}
-    spatial_chunk_cells = max(1, 64 // output_resolution_km)
-    for var in variables:
         variable_name = var.dss_variable_title
-        variable_data = data[variable_name]
-        encoding[variable_name] = {
-            "zlib": True,
-            "complevel": 6,
-            "chunksizes": tuple(
-                min(
-                    variable_data.sizes[dimension],
-                    72 if dimension == var.netcdf_time_dimension else spatial_chunk_cells,
-                )
-                for dimension in variable_data.dims
-            ),
+        spatial_chunk_cells = max(1, 64 // output_resolution_km)
+        encoding = {
+            variable_name: {
+                "zlib": True,
+                "complevel": 6,
+                "chunksizes": tuple(
+                    min(
+                        variable_data.sizes[dimension],
+                        72 if dimension == var.netcdf_time_dimension else spatial_chunk_cells,
+                    )
+                    for dimension in variable_data.dims
+                ),
+            },
+            time_dimension: {"units": "hours since 1970-01-01"},
+            time_bounds: {"units": "hours since 1970-01-01"},
         }
-    time_encoding = {"units": "hours since 1970-01-01"}
-    for var in variables:
-        time_dimension = var.netcdf_time_dimension
-        encoding[time_dimension] = time_encoding
-        encoding[f"{time_dimension}{NETCDF_TIME_BOUNDS_SUFFIX}"] = time_encoding
-    output_path = Path(output_path)
-    output_path.unlink(missing_ok=True)
-    logging.info("Writing: %s", output_path)
-    temporary_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
-    data.to_netcdf(temporary_path, engine="h5netcdf", encoding=encoding)
+        nc_dataset.to_netcdf(
+            temporary_path,
+            engine="h5netcdf",
+            encoding=encoding,
+            mode="w" if index == 0 else "a",
+        )
+        del nc_dataset, variable_data
+
     temporary_path.replace(output_path)
 
 

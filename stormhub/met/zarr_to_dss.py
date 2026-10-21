@@ -590,23 +590,25 @@ def noaa_zarr_to_dss(
             logging.info("converting temperature dataset")
             data = convert_temperature_dataset(data)
             logging.info("Successfully converted temperature dataset")
-        var_data_by_var[data_variable] = data
+        if write_netcdf:
+            var_data_by_var[data_variable] = data
+
+        if write_dss:
+            logging.info("writing to dss: %s", data_variable)
+            write_to_dss(
+                output_dss_path=str(temporary_dss_path),
+                data=data,
+                aoi_name=aoi_name,
+                param_name=data_variable.dss_variable_title,
+                param_measurement_type=data_variable.measurement_type,
+                param_measurement_unit=data_variable.measurement_unit,
+                output_resolution_km=output_resolution_km,
+                data_version="AORC",
+            )
 
     if write_netcdf:
         write_hec_hms_shg_nc(var_data_by_var, nc_output_path, output_resolution_km)
 
-    for data_variable, data in var_data_by_var.items() if write_dss else ():
-        logging.info("writing to dss: %s", data_variable)
-        write_to_dss(
-            output_dss_path=str(temporary_dss_path),
-            data=data,
-            aoi_name=aoi_name,
-            param_name=data_variable.dss_variable_title,
-            param_measurement_type=data_variable.measurement_type,
-            param_measurement_unit=data_variable.measurement_unit,
-            output_resolution_km=output_resolution_km,
-            data_version="AORC",
-        )
     if write_dss:
         temporary_dss_path.replace(dss_output_path)
         logging.info("Successfully saved storm dss file to: %s", dss_output_path)
