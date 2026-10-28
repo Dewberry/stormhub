@@ -166,7 +166,7 @@ def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.D
 
     if output_unit != "K":
         data_shape = data.shape
-        c_degrees_difference = np.full(data_shape, 273.15)
+        c_degrees_difference = np.float32(273.15)
         num_chunks = (data_shape[0] + chunk_size - 1) // chunk_size
         if num_chunks < 1:
             raise ValueError(f"Expected at least 1 chunk but got {num_chunks}")
@@ -180,12 +180,12 @@ def convert_temperature_dataset(data: xr.Dataset, chunk_size: int = 144) -> xr.D
             data_chunk = data.isel(time=slice(start, end))
 
             if output_unit == "DEG C":
-                converted_chunk = data_chunk - c_degrees_difference[start:end]
+                converted_chunk = data_chunk - c_degrees_difference
             elif output_unit == "DEG F":
-                c_data_chunk = data_chunk - c_degrees_difference[start:end]
-                scale_difference = np.full(c_data_chunk.shape, 9 / 5)
+                c_data_chunk = data_chunk - c_degrees_difference
+                scale_difference = np.float32(9 / 5)
                 scale_data_chunk = c_data_chunk * scale_difference
-                f_difference = np.full(c_data_chunk.shape, 32)
+                f_difference = np.float32(32)
                 converted_chunk = scale_data_chunk + f_difference
             else:
                 raise ValueError(
