@@ -18,7 +18,7 @@ from pyproj import CRS
 from pystac import Asset, Item, MediaType
 from pystac.extensions.projection import ProjectionExtension
 from pystac.extensions.storage import CloudPlatform, StorageExtension
-from shapely import Polygon, to_geojson
+from shapely import Point, Polygon, to_geojson
 from shapely.geometry import shape
 
 from stormhub.met.transpose import Transpose
@@ -37,6 +37,9 @@ from stormhub.met.consts import (
 class AORCItem(Item):
     """Initialize an AORC Item.
 
+    Subclasses can use another gridded data source by overriding the class attributes, `_load_source_data`,
+    `_to_data_crs`, and `_to_wgs84` (see `stormhub.met.conus404.conus404.Conus404Item`).
+
     Args:
         item_id (str): The ID of the item.
         start_datetime (datetime.datetime): The AORC start datetime.
@@ -46,8 +49,15 @@ class AORCItem(Item):
         local_directory (str): Local directory path
         watershed_name (str, optional): Name of watershed.
         transposition_domain_name (str, optional): Name of transposition name.
+        precip_sum (xr.Dataset, optional): Precomputed precip sum over the storm duration. Skips reading source data.
         **kwargs (Any): Additional keyword arguments.
     """
+
+    DATA_SOURCE = "aorc"
+    X_VAR = AORC_X_VAR
+    Y_VAR = AORC_Y_VAR
+    PRECIP_VAR = AORC_PRECIP_VARIABLE
+    TRANSPOSE_STEP = 4
 
     def __init__(
         self,
@@ -59,6 +69,7 @@ class AORCItem(Item):
         local_directory: str,
         watershed_name: str = None,
         transposition_domain_name: str = None,
+        precip_sum: xr.Dataset | None = None,
         **kwargs: Any,
     ):
         self.item_id = item_id
@@ -111,7 +122,7 @@ class AORCItem(Item):
         self._aorc_source_data: xr.Dataset | None = None
         self._aorc_paths: list[str] | None = None
         self._transpose: Transpose | None = None
-        self._sum_aorc: xr.DataArray | None = None
+        self._sum_aorc: xr.Dataset | None = precip_sum
         self._transposed_watershed: Polygon | None = None
         self._transposition_transform: Affine | None = None
         self._stats: dict | None = None
@@ -149,78 +160,92 @@ class AORCItem(Item):
 
     @property
     def aorc_source_data(self) -> xr.Dataset:
+        """Source data clipped to the transposition domain for the storm window (lazy, cached)."""
+        if self._aorc_source_data is None:
+            self._aorc_source_data = self._load_source_data()
+        return self._aorc_source_data
+
+    def _load_source_data(self) -> xr.Dataset:
         """Extract AORC source data.
 
         - reads AORC data into memory as multifile dataset using s3 paths
         - doesn't read the entire ZARR files, instead just reads slice of data corresponding to transposition domain geometry and limited to start and end time
         - adds ZARR files to assets if they don't exist already
         """
-        if self._aorc_source_data is None:
-            # Increase connection pool and configure for better memory management
-            s3_out = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
-            fileset = [s3fs.S3Map(root=aorc_path, s3=s3_out, check=False) for aorc_path in self.aorc_paths]
-            # Use auto chunks to align with Zarr storage, then rechunk if needed
-            ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
+        # Increase connection pool and configure for better memory management
+        s3_out = s3fs.S3FileSystem(anon=True, config_kwargs={"max_pool_connections": 50})
+        fileset = [s3fs.S3Map(root=aorc_path, s3=s3_out, check=False) for aorc_path in self.aorc_paths]
+        # Use auto chunks to align with Zarr storage, then rechunk if needed
+        ds = xr.open_mfdataset(fileset, engine="zarr", chunks="auto", consolidated=True)
 
-            transposition_geom_for_clip = self.transposition_domain_geometry
-            bounds = transposition_geom_for_clip.bounds
-            # adjust start slice to make sure start datetime is exclusive minimum (get data > start not data >= start)
-            start_timeslice_value = self.start_datetime + datetime.timedelta(hours=1)
-            subsection = ds.sel(
-                time=slice(start_timeslice_value, self.end_datetime),
-                longitude=slice(bounds[0], bounds[2]),
-                latitude=slice(bounds[1], bounds[3]),
+        transposition_geom_for_clip = self.transposition_domain_geometry
+        bounds = transposition_geom_for_clip.bounds
+        # adjust start slice to make sure start datetime is exclusive minimum (get data > start not data >= start)
+        start_timeslice_value = self.start_datetime + datetime.timedelta(hours=1)
+        subsection = ds.sel(
+            time=slice(start_timeslice_value, self.end_datetime),
+            longitude=slice(bounds[0], bounds[2]),
+            latitude=slice(bounds[1], bounds[3]),
+        )
+
+        # Clip to geometry
+        clipped = subsection.rio.clip([transposition_geom_for_clip], drop=True, all_touched=True)
+
+        # Rechunk after loading to optimize memory usage for downstream operations
+        # This avoids the warning about misaligned chunks
+        source_data = clipped.chunk({"time": -1, "latitude": "auto", "longitude": "auto"})
+
+        # Clean up to free memory
+        del ds
+        del subsection
+        del clipped
+        gc.collect()
+
+        for aorc_path in self.aorc_paths:
+            aorc_year = int(os.path.basename(aorc_path).replace(".zarr", ""))
+            aorc_start_datetime = datetime.datetime(year=aorc_year, month=1, day=1, hour=0, tzinfo=datetime.timezone.utc)
+            aorc_end_datetime = datetime.datetime(
+                year=aorc_year + 1, month=1, day=1, hour=0, tzinfo=datetime.timezone.utc
             )
+            asset = Asset(
+                aorc_path,
+                media_type=MediaType.ZARR,
+                extra_fields={
+                    "start_datetime": aorc_start_datetime.isoformat(),
+                    "end_datetime": aorc_end_datetime.isoformat(),
+                },
+                roles=[MediaType.ZARR],
+            )
+            storage = StorageExtension.ext(asset)
+            storage.platform = CloudPlatform.AWS
+            self.add_asset("AORC", asset)
 
-            # Clip to geometry
-            clipped = subsection.rio.clip([transposition_geom_for_clip], drop=True, all_touched=True)
+        return source_data
 
-            # Rechunk after loading to optimize memory usage for downstream operations
-            # This avoids the warning about misaligned chunks
-            self._aorc_source_data = clipped.chunk({"time": -1, "latitude": "auto", "longitude": "auto"})
+    def _to_data_crs(self, geom: Any) -> Any:
+        """Convert an EPSG:4326 geometry to the source data CRS. AORC is already EPSG:4326."""
+        return geom
 
-            # Clean up to free memory
-            del ds
-            del subsection
-            del clipped
-            gc.collect()
-
-            for aorc_path in self.aorc_paths:
-                aorc_year = int(os.path.basename(aorc_path).replace(".zarr", ""))
-                aorc_start_datetime = datetime.datetime(
-                    year=aorc_year, month=1, day=1, hour=0, tzinfo=datetime.timezone.utc
-                )
-                aorc_end_datetime = datetime.datetime(
-                    year=aorc_year + 1, month=1, day=1, hour=0, tzinfo=datetime.timezone.utc
-                )
-                asset = Asset(
-                    aorc_path,
-                    media_type=MediaType.ZARR,
-                    extra_fields={
-                        "start_datetime": aorc_start_datetime.isoformat(),
-                        "end_datetime": aorc_end_datetime.isoformat(),
-                    },
-                    roles=[MediaType.ZARR],
-                )
-                storage = StorageExtension.ext(asset)
-                storage.platform = CloudPlatform.AWS
-                self.add_asset("AORC", asset)
-
-        return self._aorc_source_data
+    def _to_wgs84(self, geom: Any) -> Any:
+        """Convert a source data CRS geometry to EPSG:4326. AORC is already EPSG:4326."""
+        return geom
 
     @property
     def transpose(self) -> Transpose:
         """Create transpose class to use for transposition functions."""
         if self._transpose is None:
-            watershed_geom_for_transpose = self.watershed_geometry
             self._transpose = Transpose(
-                self.sum_aorc["APCP_surface"], watershed_geom_for_transpose, AORC_X_VAR, AORC_Y_VAR
+                self.sum_aorc[self.PRECIP_VAR],
+                self._to_data_crs(self.watershed_geometry),
+                self.X_VAR,
+                self.Y_VAR,
+                step=self.TRANSPOSE_STEP,
             )
         return self._transpose
 
     @property
-    def sum_aorc(self) -> xr.DataArray:
-        """Sum AORC precipitation data over the duration."""
+    def sum_aorc(self) -> xr.Dataset:
+        """Sum precipitation data over the duration."""
         if self._sum_aorc is None:
             self._sum_aorc = self.aorc_source_data.sum(dim="time", skipna=True, min_count=1)
         return self._sum_aorc
@@ -239,20 +264,22 @@ class AORCItem(Item):
     def max_transpose(self, add_properties: bool = True) -> tuple[Polygon, Affine, dict]:
         """Get max transpose.
 
-        - convert max array to polygon
+        - convert max array to polygon (kept in the source data CRS)
         - add stats object to item properties
-        - record transpose centroid as item geometry
-        - record max shift (as affine transform) to item properties
-        - return polygon, transform, and stats
+        - record transpose centroid (EPSG:4326) as item geometry
+        - record max shift (as affine transform, source data CRS units) to item properties
+        - return polygon, transform, stats, and EPSG:4326 centroid
         """
         if not all([self._transposed_watershed, self._transposition_transform, self._stats]):
             self._transposed_watershed, self._transposition_transform, self._stats = self.transpose.max_transpose(
                 self._create_stats
             )
+        centroid = self._to_wgs84(self._transposed_watershed.centroid)
         if add_properties:
-            self.geometry = json.loads(to_geojson(self._transposed_watershed.centroid))
-            self.properties["aorc:statistics"] = self._stats
-            self.properties["aorc:transform"] = {
+            self.geometry = json.loads(to_geojson(centroid))
+            self.properties["stormhub:data_source"] = self.DATA_SOURCE
+            self.properties["stormhub:statistics"] = self._stats
+            self.properties["stormhub:transform"] = {
                 "a": self._transposition_transform.a,
                 "b": self._transposition_transform.b,
                 "c": self._transposition_transform.c,
@@ -264,17 +291,21 @@ class AORCItem(Item):
             self._transposed_watershed,
             self._transposition_transform,
             self._stats,
-            self._transposed_watershed.centroid,
+            centroid,
         )
 
     def max_precip_point(self):
-        """Add max precipitation location coordinates to item properties."""
-        precip_ds = self.sum_aorc["APCP_surface"].compute()
+        """Add max precipitation location coordinates (EPSG:4326) to item properties."""
+        precip_ds = self.sum_aorc[self.PRECIP_VAR].compute()
         clipped_precip_ds = precip_ds.rio.clip([self._transposed_watershed], drop=True, all_touched=True)
-        max_idx = clipped_precip_ds.argmax(dim=["latitude", "longitude"])
-        lat = clipped_precip_ds.latitude[max_idx["latitude"]].item()
-        lon = clipped_precip_ds.longitude[max_idx["longitude"]].item()
-        self.properties["aorc:max_precip_location"] = {"latitude": round(lat, 4), "longitude": round(lon, 4)}
+        max_idx = clipped_precip_ds.argmax(dim=[self.Y_VAR, self.X_VAR])
+        x = clipped_precip_ds[self.X_VAR][max_idx[self.X_VAR]].item()
+        y = clipped_precip_ds[self.Y_VAR][max_idx[self.Y_VAR]].item()
+        point = self._to_wgs84(Point(x, y))
+        self.properties["stormhub:max_precip_location"] = {
+            "latitude": round(point.y, 4),
+            "longitude": round(point.x, 4),
+        }
 
     def aorc_thumbnail(
         self,
@@ -298,7 +329,7 @@ class AORCItem(Item):
         fig, ax = plt.subplots(figsize=(5, 5))
         fig.set_facecolor("w")
         colormap = plt.get_cmap("Spectral_r")
-        (self.sum_aorc["APCP_surface"] * MM_TO_INCH_CONVERSION_FACTOR).plot(
+        (self.sum_aorc[self.PRECIP_VAR] * MM_TO_INCH_CONVERSION_FACTOR).plot(
             ax=ax, cmap=colormap, cbar_kwargs={"label": "Accumulation (Inches)"}, vmin=0, vmax=scale_max
         )
         valid_area_plt_polygon = patches.Polygon(
@@ -309,7 +340,7 @@ class AORCItem(Item):
         )
         ax.add_patch(valid_area_plt_polygon)
         watershed_plt_polygon = patches.Polygon(
-            np.column_stack(self.watershed_geometry.exterior.coords.xy),
+            np.column_stack(self._to_data_crs(self.watershed_geometry).exterior.coords.xy),
             lw=0.7,
             facecolor="none",
             edgecolor="gray",

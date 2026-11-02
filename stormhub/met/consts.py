@@ -3,8 +3,17 @@
 NOAA_AORC_S3_BASE_URL = "s3://noaa-nws-aorc-v1-1-1km"
 
 AORC_PRECIP_VARIABLE = "APCP_surface"
+AORC_TEMP_VARIABLE = "TMP_2maboveground"
 AORC_X_VAR = "longitude"
 AORC_Y_VAR = "latitude"
+
+DATA_SOURCE_KEY = "stormhub:data_source"
+DATA_SOURCES = ("aorc", "conus404")
+"""Supported gridded meteorological data sources. Stored on the catalog under `DATA_SOURCE_KEY`."""
+
+DEFAULT_OUTPUT_RESOLUTION_KM = {"aorc": 1, "conus404": 2}
+"""Default SHG cell size (km) for DSS/NetCDF grids per data source. CONUS404 is native ~4 km, which is not an
+HEC-supported SHG size, so 2 km (HEC's default SHG size) is used."""
 
 MM_TO_INCH_CONVERSION_FACTOR = 0.03937007874015748
 

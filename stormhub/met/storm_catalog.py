@@ -22,6 +22,7 @@ import geopandas as gpd
 import matplotlib
 import numpy as np
 import zarr
+import dask.threaded
 from stormhub.hydro_domain import HydroDomain
 from stormhub.kerchunker import (
     Kerchunker,
@@ -32,7 +33,12 @@ from stormhub.kerchunker import (
 from stormhub.logger import initialize_logger
 from stormhub.met.analysis import StormAnalyzer
 from stormhub.met.aorc.aorc import AORCItem, valid_spaces_item
+from stormhub.met.conus404.conus404 import Conus404Item, group_by_month, iter_precip_sums
+from stormhub.met.conus404.conus404 import valid_spaces_polygon as conus404_valid_spaces_polygon
 from stormhub.met.consts import (
+    DATA_SOURCE_KEY,
+    DEFAULT_OUTPUT_RESOLUTION_KM,
+    DATA_SOURCES,
     DSS_ASSET_DESCRIPTION,
     DSS_ASSET_MEDIA_TYPE,
     DSS_ASSET_ROLES,
@@ -52,6 +58,19 @@ from stormhub.utils import (
     generate_date_range,
     validate_config,
 )
+
+
+def _reset_dask_thread_pools() -> None:
+    """Drop dask's cached thread pools in a forked process.
+
+    `ProcessPoolExecutor` workers are forked; if the parent already ran a dask compute (e.g. building the valid
+    transposition region), the child inherits dask's pool objects but not their threads, and computes deadlock.
+    """
+    dask.threaded.default_pool = None
+    dask.threaded.pools.clear()
+
+
+os.register_at_fork(after_in_child=_reset_dask_thread_pools)
 
 
 def get_meteorological_season(month: int) -> str:
@@ -145,7 +164,7 @@ class StormCollection(pystac.Collection):
             self.add_item(item)
             logging.info("Added item with ID '%s' to the collection.", item.id)
 
-    def add_summary_stats(self, spm: StacPathManager, property_name: str = "aorc:statistics", statistic: str = "mean"):
+    def add_summary_stats(self, spm: StacPathManager, property_name: str = "stormhub:statistics", statistic: str = "mean"):
         """
         Add summary statistics to the collection.
 
@@ -209,7 +228,7 @@ class StormCollection(pystac.Collection):
                 "properties": {
                     "id": item.id,
                     "storm_start_date": item.properties.get("start_datetime"),
-                    "aorc:statistics": item.properties.get("aorc:statistics"),
+                    "stormhub:statistics": item.properties.get("stormhub:statistics"),
                 },
             }
             features.append(feature)
@@ -243,7 +262,7 @@ class StormCollection(pystac.Collection):
         """
         features = []
         for item in self.get_all_items():
-            loc = item.properties.get("aorc:max_precip_location")
+            loc = item.properties.get("stormhub:max_precip_location")
             if not loc or "latitude" not in loc or "longitude" not in loc:
                 continue
 
@@ -257,7 +276,7 @@ class StormCollection(pystac.Collection):
                 "properties": {
                     "id": item.id,
                     "storm_start_date": storm_start,
-                    "aorc:statistics": item.properties.get("aorc:statistics"),
+                    "stormhub:statistics": item.properties.get("stormhub:statistics"),
                     "season": get_meteorological_season(storm_start_dt.month),
                 },
             }
@@ -315,6 +334,7 @@ class StormCatalog(pystac.Catalog):
         description (str): Description of the catalog.
         local_dir (str): Local directory for the catalog.
         valid_transposition_region (HydroDomain, optional): Valid transposition region domain.
+        data_source (str, optional): Gridded met data source, one of `DATA_SOURCES`. Saved with the catalog.
         **kwargs (Any): Additional keyword arguments.
     """
 
@@ -326,12 +346,14 @@ class StormCatalog(pystac.Catalog):
         description: str,
         local_dir: str,
         valid_transposition_region: HydroDomain = None,
+        data_source: str = "aorc",
         **kwargs: Any,
     ):
         super().__init__(id=catalog_id, description=description)
         self.catalog_type = pystac.CatalogType.SELF_CONTAINED
         self.local_dir = local_dir
         self.spm = StacPathManager(local_dir)
+        self.extra_fields[DATA_SOURCE_KEY] = data_source
         self._watershed = self.add_hydro_domain(watershed)
         self._transposition_region = self.add_hydro_domain(transposition_region)
         if valid_transposition_region:
@@ -371,8 +393,14 @@ class StormCatalog(pystac.Catalog):
             description=catalog.description,
             local_dir=os.path.dirname(file_path),
             valid_transposition_region=valid_transposition_region,
+            data_source=catalog.extra_fields.get(DATA_SOURCE_KEY, "aorc"),
             links=links,
         )
+
+    @property
+    def data_source(self) -> str:
+        """Gridded met data source used by this catalog (`aorc` or `conus404`)."""
+        return self.extra_fields.get(DATA_SOURCE_KEY, "aorc")
 
     @property
     def valid_transposition_region(self) -> Item:
@@ -676,10 +704,10 @@ class StormCatalog(pystac.Catalog):
         for item in collection.get_all_items():
             matching_events = top_events[top_events["storm_id"] == item.id]
             if not matching_events.empty:
-                item.properties["aorc:calendar_year_rank"] = int(matching_events.iloc[0]["annual_rank"])
-                item.properties["aorc:collection_rank"] = int(matching_events.iloc[0]["por_rank"])
+                item.properties["stormhub:calendar_year_rank"] = int(matching_events.iloc[0]["annual_rank"])
+                item.properties["stormhub:collection_rank"] = int(matching_events.iloc[0]["por_rank"])
 
-        collection = self.sort_collection(collection_id, "aorc:collection_rank")
+        collection = self.sort_collection(collection_id, "stormhub:collection_rank")
         collection.add_asset(
             "valid-transposition-region",
             pystac.Asset(
@@ -716,6 +744,7 @@ def storm_search(
     return_item: bool = False,
     scale_max: float = 12.0,
     collection_id: str = None,
+    precip_sum: xr.Dataset | None = None,
 ) -> Union[dict, AORCItem]:
     """
     Search for a storm event.
@@ -727,6 +756,7 @@ def storm_search(
         return_item (bool): Whether to return the storm item.
         scale_max (float): The maximum scale for the thumbnail.
         collection_id (str): The ID of the collection.
+        precip_sum (xr.Dataset, optional): Precomputed precip sum for the storm window. Skips reading source data.
 
     Returns
     -------
@@ -749,7 +779,8 @@ def storm_search(
         item_id = f"{storm_start_date.strftime('%Y-%m-%dT%H')}"
     item_dir = catalog.spm.collection_item_dir(collection_id, item_id)
 
-    event_item = AORCItem(
+    item_class = Conus404Item if catalog.data_source == "conus404" else AORCItem
+    event_item = item_class(
         item_id,
         storm_start_date,
         timedelta(hours=storm_duration_hours),
@@ -758,6 +789,7 @@ def storm_search(
         item_dir,
         watershed.id,
         valid_transposition_domain.id,
+        precip_sum=precip_sum,
         href=catalog.spm.collection_item(collection_id, item_id),
     )
 
@@ -781,11 +813,23 @@ def storm_search(
         result = {
             "storm_date": storm_start_date.strftime("%Y-%m-%dT%H"),
             "centroid": centroid,
-            "aorc:statistics": event_stats,
+            "stormhub:statistics": event_stats,
         }
         del event_item
         gc.collect()
         return result
+
+
+def _conus404_month_stats(catalog: StormCatalog, month_dates: list[datetime], storm_duration: int) -> list[dict]:
+    """Run `storm_search` for one month of start dates, loading that month of CONUS404 precip once."""
+    region = shape(catalog.valid_transposition_region.geometry)
+    results = []
+    for start, precip_sum in iter_precip_sums(month_dates, storm_duration, region):
+        try:
+            results.append(storm_search(catalog, start, storm_duration, precip_sum=precip_sum))
+        except Exception as e:
+            logging.error("Error processing %s: %s", start, e)
+    return results
 
 
 def serial_processor(
@@ -811,21 +855,28 @@ def serial_processor(
         with open(output_csv, "w", encoding="utf-8") as f:
             f.write("storm_date,min,mean,max,x,y\n")
 
-    count = len(event_dates)
+    count = sum(_task_size(task) for task in event_dates)
 
     with open(output_csv, "a", encoding="utf-8") as f:
         for date in event_dates:
             try:
                 r = func(catalog, date, storm_duration)
-                f.write(storm_search_results_to_csv_line(r))
-                logging.info("%s processed (%d remaining)", r["storm_date"], count)
-                count -= 1
+                for result in r if isinstance(r, list) else [r]:
+                    count -= 1
+                    f.write(storm_search_results_to_csv_line(result))
+                    logging.info("%s processed (%d remaining)", result["storm_date"], count)
             except Exception as e:
+                count -= _task_size(date)
                 if with_tb:
                     tb = traceback.format_exc()
                     logging.error("Error processing: %s\n%s", e, tb)
                 else:
                     logging.error("Error processing: %s", e)
+
+
+def _task_size(task: datetime | list[datetime]) -> int:
+    """Number of dates in a task (a single date, or a month of dates for CONUS404)."""
+    return len(task) if isinstance(task, list) else 1
 
 
 def multi_processor(
@@ -862,7 +913,7 @@ def multi_processor(
         with open(output_csv, "w", encoding="utf-8") as f:
             f.write("storm_date,min,mean,max,x,y\n")
 
-    count = len(event_dates)
+    count = sum(_task_size(task) for task in event_dates)
 
     # Process in smaller batches to avoid memory buildup
     # Limit concurrent tasks to prevent OOM, especially with threads loading large datasets
@@ -872,22 +923,24 @@ def multi_processor(
     with executor_class(max_workers=num_workers) as executor:
         for i in range(0, len(event_dates), batch_size):
             batch = event_dates[i : i + batch_size]
-            futures = [executor.submit(func, catalog, date, storm_duration) for date in batch]
+            futures = {executor.submit(func, catalog, date, storm_duration): date for date in batch}
 
             # Write results as they complete
             with open(output_csv, "a", encoding="utf-8") as f:
                 for future in as_completed(futures):
-                    count -= 1
                     try:
                         r = future.result()
-                        f.write(storm_search_results_to_csv_line(r))
+                        for result in r if isinstance(r, list) else [r]:
+                            count -= 1
+                            f.write(storm_search_results_to_csv_line(result))
+                            logging.info("%s processed (%d remaining)", result["storm_date"], count)
                         f.flush()  # Force write to disk
-                        logging.info("%s processed (%d remaining)", r["storm_date"], count)
 
                         # Explicitly delete result to free memory
                         del r
 
                     except Exception as e:
+                        count -= _task_size(futures[future])
                         if with_tb:
                             tb = traceback.format_exc()
                             logging.error("Error processing: %s\n%s", e, tb)
@@ -941,14 +994,20 @@ def collect_event_stats(
         num_workers = 10
 
     output_csv = os.path.join(collection_dir, "storm-stats.csv")
+
+    # CONUS404: one task per month of dates, each loading that month of hourly data once.
+    func, tasks = storm_search, event_dates
+    if catalog.data_source == "conus404":
+        func, tasks = _conus404_month_stats, group_by_month(event_dates)
+
     if use_parallel_processing:
         logging.info("Using %s cpu's for collecting event stats", num_workers)
         multi_processor(
-            func=storm_search,
+            func=func,
             catalog=catalog,
             storm_duration=storm_duration,
             output_csv=output_csv,
-            event_dates=event_dates,
+            event_dates=tasks,
             num_workers=num_workers,
             use_threads=use_threads,
             with_tb=with_tb,
@@ -956,11 +1015,11 @@ def collect_event_stats(
     else:
         logging.info("Processing event stats serially.")
         serial_processor(
-            func=storm_search,
+            func=func,
             catalog=catalog,
             storm_duration=storm_duration,
             output_csv=output_csv,
-            event_dates=event_dates,
+            event_dates=tasks,
             with_tb=with_tb,
         )
 
@@ -1061,7 +1120,11 @@ def create_items(
 
 
 def init_storm_catalog(
-    catalog_id: str, config: dict, local_catalog_dir: str, create_valid_transposition_region: bool = False
+    catalog_id: str,
+    config: dict,
+    local_catalog_dir: str,
+    create_valid_transposition_region: bool = False,
+    data_source: str = "aorc",
 ) -> pystac.Catalog:
     """
     Initialize a storm catalog.
@@ -1071,6 +1134,7 @@ def init_storm_catalog(
         config (dict): Configuration dictionary.
         local_catalog_dir (str): Local directory for the catalog.
         create_valid_transposition_region (bool): Whether to create a valid transposition region.
+        data_source (str): Gridded met data source used to derive the valid transposition region.
 
     Returns
     -------
@@ -1106,7 +1170,10 @@ def init_storm_catalog(
 
     if create_valid_transposition_region:
         logging.info("Creating `valid_transposition_region` item for catalog: %s", catalog_id)
-        vtr_polygon = valid_spaces_item(watershed, transposition_region)
+        if data_source == "conus404":
+            vtr_polygon = conus404_valid_spaces_polygon(shape(watershed.geometry), shape(transposition_region.geometry))
+        else:
+            vtr_polygon = valid_spaces_item(watershed, transposition_region)
         vtr_id = f"{tr_config.get('id')}_valid"
         vtr = HydroDomain(
             item_id=vtr_id,
@@ -1162,7 +1229,7 @@ def storm_search_results_to_csv_line(storm_search_results: dict) -> str:
     -------
         str: The CSV line.
     """
-    event_stats = storm_search_results["aorc:statistics"]
+    event_stats = storm_search_results["stormhub:statistics"]
     storm_date = storm_search_results["storm_date"]
     centroid = storm_search_results["centroid"]
     stats = f"{event_stats['min']},{event_stats['mean']},{event_stats['max']}"
@@ -1244,7 +1311,7 @@ def add_storm_dss_files(
     use_valid_region: bool = False,
     variable_duration_map: Dict[NOAADataVariable, int] = None,
     dss_output_dir: str = None,
-    output_resolution_km: int = 1,
+    output_resolution_km: int | None = None,
     nc_config: NetCDFConfig | None = None,
     skip_grids_if_exist: bool = False,
 ):
@@ -1257,7 +1324,7 @@ def add_storm_dss_files(
         use_valid_region (bool, optional): If True, the gridded DSS data will be confined to the valid transposition region. If False, the the data uses the entire transposition region. Defaults to False.
         variable_duration_map (Dict[NOAADataVariable, int], Optional): Optional variable map to include multiple variables and/or different durations for dss creation. If None is given, only precipitation is used at the duration between the storm items start and end time.
         dss_output_dir (str, optional): Optional output directory for DSS and NetCDF files. If None, files are saved in the same directory as the associated storm item.
-        output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). Default: 1.
+        output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). If None, uses `DEFAULT_OUTPUT_RESOLUTION_KM` for the catalog's data source (AORC: 1, CONUS404: 2).
         nc_config (NetCDFConfig, optional): Configuration for NetCDF export and related Kerchunking.
         skip_grids_if_exist (bool, optional): Skip grids (DSS and NetCDF) only when all requested output files already exist. Otherwise rewrite them (as configured). Defaults: False.
     """
@@ -1277,6 +1344,9 @@ def add_storm_dss_files(
 
     if aoi_name is None:
         aoi_name = catalog.id
+    data_source = catalog.extra_fields.get(DATA_SOURCE_KEY, "aorc")
+    if output_resolution_km is None:
+        output_resolution_km = DEFAULT_OUTPUT_RESOLUTION_KM[data_source]
 
     errors = []
     for item in events_collection.get_items():
@@ -1313,6 +1383,7 @@ def add_storm_dss_files(
                 output_resolution_km,
                 nc_config=nc_config,
                 skip_grids_if_exist=skip_grids_if_exist,
+                data_source=data_source,
             )
             netcdf_error = register_storm_netcdf(item, nc_written, dss_output_path, kerchunker)
             if netcdf_error is not None:
@@ -1545,6 +1616,7 @@ def new_catalog(
     config_file: str,
     local_directory: str = None,
     catalog_description: str = "",
+    data_source: str = "aorc",
 ) -> StormCatalog:
     """
     Create a new storm catalog.
@@ -1554,11 +1626,16 @@ def new_catalog(
         config_file (str): Path to the configuration file.
         local_directory (str, optional): Local directory for the catalog.
         catalog_description (str): Description of the catalog.
+        data_source (str): Gridded met data source, `aorc` or `conus404`. Saved with the catalog and used by
+            `new_collection`, `resume_collection`, and `add_storm_dss_files`.
 
     Returns
     -------
         StormCatalog: The new storm catalog.
     """
+    if data_source not in DATA_SOURCES:
+        raise ValueError(f"data_source must be one of {DATA_SOURCES}, got {data_source!r}")
+
     # Step 1: Load config
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
@@ -1572,7 +1649,7 @@ def new_catalog(
     spm = StacPathManager(os.path.join(local_directory, catalog_id))
 
     watershed, transposition_region, vtr = init_storm_catalog(
-        catalog_id, config, spm.catalog_dir, create_valid_transposition_region=True
+        catalog_id, config, spm.catalog_dir, create_valid_transposition_region=True, data_source=data_source
     )
 
     storm_catalog = StormCatalog(
@@ -1582,6 +1659,7 @@ def new_catalog(
         catalog_description,
         spm.catalog_dir,
         valid_transposition_region=vtr,
+        data_source=data_source,
     )
 
     storm_catalog.save()

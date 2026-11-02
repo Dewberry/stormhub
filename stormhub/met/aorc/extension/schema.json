@@ -10,11 +10,11 @@
     {
       "type": "object",
       "properties": {
-        "aorc:statistics": {
-          "$ref": "#/definitions/aorc:statistics"
+        "stormhub:statistics": {
+          "$ref": "#/definitions/stormhub:statistics"
         }
       },
-      "required": ["aorc:statistics"]
+      "required": ["stormhub:statistics"]
     }
   ],
   "definitions": {
@@ -37,15 +37,15 @@
       "anyOf": [
         {
           "required": [
-            "aorc:statistics",
-            "aorc:transform"
+            "stormhub:statistics",
+            "stormhub:transform"
           ]
         }
       ]
     },
-    "aorc:statistics": {
+    "stormhub:statistics": {
       "title": "Precipitation Accumultation Statistics",
-      "description": "A collection of statistics computed using accumulated AORC precipitation data for a transposed watershed within the transposition domain",
+      "description": "A collection of statistics computed using accumulated precipitation data (AORC or CONUS404) for a transposed watershed within the transposition domain",
       "type": "object",
       "properties": {
         "min": {
@@ -80,7 +80,7 @@
         "max"
       ]
     },
-    "aorc:transform": {
+    "stormhub:transform": {
       "title":"Transform",
       "description": "A 3x3 matrix stored as a flat array of 9 elements in row major order. Since the last row is always 0,0,1 it can be omitted, in which case only 6 elements are recorded. Refers to the transform applied to the original watershed geometry to yield the provided watershed geometry",
       "type":"array",
@@ -98,13 +98,13 @@
         "type":"number"
       }
     },
-    "aorc:calendar_year_rank": {
+    "stormhub:calendar_year_rank": {
       "title": "Calendar Year Rank",
       "description": "Calendar year (January 1- December 31) rank of the storm withing the collection based on mean preciptation summed within the watershed over the storm duration",
       "type": "integer",
       "minimum": 1
     },
-    "aorc:collection_rank": {
+    "stormhub:collection_rank": {
       "title": "Collection Rank",
       "description": "Absolute rank of the storm withing the collection based on mean preciptation summed within the watershed over the storm duration",
       "type": "integer",
@@ -119,20 +119,20 @@
       "$comment": "Add your new fields here. Don't require them here, do that above in the corresponding schema.",
       "type": "object",
       "properties": {
-        "aorc:statistics": {
-          "$ref": "#/definitions/aorc:statistics"
+        "stormhub:statistics": {
+          "$ref": "#/definitions/stormhub:statistics"
         },
-        "aorc:transform": {
-          "$ref": "#/definitions/aorc:transform"
+        "stormhub:transform": {
+          "$ref": "#/definitions/stormhub:transform"
         },
-        "aorc:calendar_year_rank": {
-          "$ref": "#/definitions/aorc:calendar_year_rank"
+        "stormhub:calendar_year_rank": {
+          "$ref": "#/definitions/stormhub:calendar_year_rank"
         },
-        "aorc:overlapping_year_rank": {
+        "stormhub:overlapping_year_rank": {
           "$ref": "#/definitions/collection_rank:collection_rank"
         },
         "patternProperties": {
-          "^(?!aorc:)": {}
+          "^(?!stormhub:)": {}
         },
         "additionalProperties": false
       }

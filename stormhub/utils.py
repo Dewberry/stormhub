@@ -132,7 +132,7 @@ def generate_date_range(
 
 
 def create_feature_collection_from_items(
-    collection: Collection, output_geojson: str, select_properties: str = "aorc:statistics"
+    collection: Collection, output_geojson: str, select_properties: str = "stormhub:statistics"
 ):
     """Generate a geojson feature collection from a collection of STAC items."""
     features = []

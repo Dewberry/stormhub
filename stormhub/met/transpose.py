@@ -27,20 +27,22 @@ class Transpose:
         y_var (str): The y variable name in the data array.
     """
 
-    def __init__(self, data_array: xr.DataArray, watershed: Polygon, x_var: str, y_var: str) -> None:
+    def __init__(self, data_array: xr.DataArray, watershed: Polygon, x_var: str, y_var: str, step: int = 4) -> None:
         """
         Initialize the Transpose class.
 
         Args:
             data_array (xr.DataArray): The data array to be transposed.
-            watershed (Polygon): The watershed polygon.
+            watershed (Polygon): The watershed polygon, in the same CRS as `data_array`.
             x_var (str): The x variable name in the data array.
             y_var (str): The y variable name in the data array.
+            step (int): Shift step in grid cells when searching transpositions.
         """
         self.data_array = data_array
         self.watershed = watershed
         self.x_var = x_var
         self.y_var = y_var
+        self.step = step
         self.x_cellsize, self.y_cellsize = self.data_array.rio.resolution()
         self.transform = self.data_array.rio.transform()
         self.width = self.data_array.rio.width
@@ -188,8 +190,8 @@ class Transpose:
                     combined_mask = np.logical_and(self.watershed_mask_clipped, data_mask)
                     if np.array_equal(combined_mask, self.watershed_mask_clipped):
                         shifts.append((x_delta, y_delta))
-                    y_delta += 4
-                x_delta += 4
+                    y_delta += self.step
+                x_delta += self.step
                 y_delta = min_y_delta
             self._valid_shifts = shifts
 
