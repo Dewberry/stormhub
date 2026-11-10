@@ -1,0 +1,22 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: stormhub
+  title: Stormhub
+  description: StormHub is an open-source Python library designed to access and process publicly available hydrometeorological data to create catalogs, metadata, and data products for hydrologic modeling.
+  tags:
+  - python          # add relevant tags
+  - AORC
+  - STAC
+  - USGS
+  - SST
+  - Precipitation
+  annotations:
+    github.com/project-slug: Dewberry/stormhub
+  links:
+  - url: https://github.com/Dewberry/stormhub
+    title: GitHub
+spec:
+  type: library       # library | service | website | tool
+  lifecycle: active   # experimental | active | deprecated
+  owner: dewberry     # must match a group defined in dewberry-org.yaml
