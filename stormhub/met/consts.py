@@ -8,10 +8,10 @@ AORC_X_VAR = "longitude"
 AORC_Y_VAR = "latitude"
 
 DATA_SOURCE_KEY = "stormhub:data_source"
-DATA_SOURCES = ("aorc", "conus404")
+DATA_SOURCES = ("aorc", "conus404", "conus404-ba")
 """Supported gridded meteorological data sources. Stored on the catalog under `DATA_SOURCE_KEY`."""
 
-DEFAULT_OUTPUT_RESOLUTION_KM = {"aorc": 1, "conus404": 2}
+DEFAULT_OUTPUT_RESOLUTION_KM = {"aorc": 1, "conus404": 2, "conus404-ba": 1}
 """Default SHG cell size (km) for DSS/NetCDF grids per data source. CONUS404 is native ~4 km, which is not an
 HEC-supported SHG size, so 2 km (HEC's default SHG size) is used."""
 

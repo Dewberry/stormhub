@@ -33,7 +33,7 @@ from stormhub.kerchunker import (
 from stormhub.logger import initialize_logger
 from stormhub.met.analysis import StormAnalyzer
 from stormhub.met.aorc.aorc import AORCItem, valid_spaces_item
-from stormhub.met.conus404.conus404 import Conus404Item, group_by_month, iter_precip_sums
+from stormhub.met.conus404.conus404 import CONUS404_ITEM_CLASSES, group_by_month, iter_precip_sums
 from stormhub.met.conus404.conus404 import valid_spaces_polygon as conus404_valid_spaces_polygon
 from stormhub.met.consts import (
     DATA_SOURCE_KEY,
@@ -399,7 +399,7 @@ class StormCatalog(pystac.Catalog):
 
     @property
     def data_source(self) -> str:
-        """Gridded met data source used by this catalog (`aorc` or `conus404`)."""
+        """Gridded met data source used by this catalog (one of `DATA_SOURCES`)."""
         return self.extra_fields.get(DATA_SOURCE_KEY, "aorc")
 
     @property
@@ -779,7 +779,7 @@ def storm_search(
         item_id = f"{storm_start_date.strftime('%Y-%m-%dT%H')}"
     item_dir = catalog.spm.collection_item_dir(collection_id, item_id)
 
-    item_class = Conus404Item if catalog.data_source == "conus404" else AORCItem
+    item_class = CONUS404_ITEM_CLASSES.get(catalog.data_source, AORCItem)
     event_item = item_class(
         item_id,
         storm_start_date,
@@ -823,8 +823,9 @@ def storm_search(
 def _conus404_month_stats(catalog: StormCatalog, month_dates: list[datetime], storm_duration: int) -> list[dict]:
     """Run `storm_search` for one month of start dates, loading that month of CONUS404 precip once."""
     region = shape(catalog.valid_transposition_region.geometry)
+    source = CONUS404_ITEM_CLASSES[catalog.data_source].SOURCE
     results = []
-    for start, precip_sum in iter_precip_sums(month_dates, storm_duration, region):
+    for start, precip_sum in iter_precip_sums(month_dates, storm_duration, region, source):
         try:
             results.append(storm_search(catalog, start, storm_duration, precip_sum=precip_sum))
         except Exception as e:
@@ -997,7 +998,7 @@ def collect_event_stats(
 
     # CONUS404: one task per month of dates, each loading that month of hourly data once.
     func, tasks = storm_search, event_dates
-    if catalog.data_source == "conus404":
+    if catalog.data_source in CONUS404_ITEM_CLASSES:
         func, tasks = _conus404_month_stats, group_by_month(event_dates)
 
     if use_parallel_processing:
@@ -1059,10 +1060,10 @@ def create_items(
     if not num_workers:
         num_workers = 4
 
+    # Thumbnails are written to files; GUI backends (e.g. TkAgg) crash in worker threads/forked processes.
+    matplotlib.use("Agg")
     if use_threads:
         executor_class = ThreadPoolExecutor
-        # Force a non‑interactive backend (Agg) when threading.
-        matplotlib.use("Agg")
     else:
         executor_class = ProcessPoolExecutor
 
@@ -1170,8 +1171,12 @@ def init_storm_catalog(
 
     if create_valid_transposition_region:
         logging.info("Creating `valid_transposition_region` item for catalog: %s", catalog_id)
-        if data_source == "conus404":
-            vtr_polygon = conus404_valid_spaces_polygon(shape(watershed.geometry), shape(transposition_region.geometry))
+        if data_source in CONUS404_ITEM_CLASSES:
+            vtr_polygon = conus404_valid_spaces_polygon(
+                shape(watershed.geometry),
+                shape(transposition_region.geometry),
+                item_class=CONUS404_ITEM_CLASSES[data_source],
+            )
         else:
             vtr_polygon = valid_spaces_item(watershed, transposition_region)
         vtr_id = f"{tr_config.get('id')}_valid"
@@ -1324,7 +1329,7 @@ def add_storm_dss_files(
         use_valid_region (bool, optional): If True, the gridded DSS data will be confined to the valid transposition region. If False, the the data uses the entire transposition region. Defaults to False.
         variable_duration_map (Dict[NOAADataVariable, int], Optional): Optional variable map to include multiple variables and/or different durations for dss creation. If None is given, only precipitation is used at the duration between the storm items start and end time.
         dss_output_dir (str, optional): Optional output directory for DSS and NetCDF files. If None, files are saved in the same directory as the associated storm item.
-        output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). If None, uses `DEFAULT_OUTPUT_RESOLUTION_KM` for the catalog's data source (AORC: 1, CONUS404: 2).
+        output_resolution_km (int, optional): Desired output resolution of the SHG grid, in kilometers, for the DSS (and for the optional NetCDF). If None, uses `DEFAULT_OUTPUT_RESOLUTION_KM` for the catalog's data source (AORC: 1, CONUS404: 2, CONUS404-BA: 1).
         nc_config (NetCDFConfig, optional): Configuration for NetCDF export and related Kerchunking.
         skip_grids_if_exist (bool, optional): Skip grids (DSS and NetCDF) only when all requested output files already exist. Otherwise rewrite them (as configured). Defaults: False.
     """
@@ -1626,7 +1631,7 @@ def new_catalog(
         config_file (str): Path to the configuration file.
         local_directory (str, optional): Local directory for the catalog.
         catalog_description (str): Description of the catalog.
-        data_source (str): Gridded met data source, `aorc` or `conus404`. Saved with the catalog and used by
+        data_source (str): Gridded met data source, `aorc`, `conus404`, or `conus404-ba` (bias-adjusted). Saved with the catalog and used by
             `new_collection`, `resume_collection`, and `add_storm_dss_files`.
 
     Returns

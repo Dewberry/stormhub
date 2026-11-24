@@ -45,6 +45,14 @@ CONUS404_HOURLY = Conus404Source(
     temp_var="T2",  # K
 )
 
+CONUS404_BIAS_ADJUSTED = Conus404Source(
+    url="s3://hytest/conus404-biasadjusted/conus404-biasadjusted_hourly.zarr",
+    endpoint_url="https://usgs.osn.mghpcc.org/",
+    precip_var="RAINRATE",  # mm/s, mean over the prior hour (1 km NWM grid)
+    temp_var="T2D",  # K
+    precip_to_mm=3600.0,
+)
+
 
 def open_conus404(source: Conus404Source = CONUS404_HOURLY, max_connections: int = 64) -> xr.Dataset:
     """Lazily open CONUS404 precip and temperature, renamed to the AORC variable names, with the CRS set.
@@ -136,22 +144,24 @@ def valid_spaces_polygon(
     watershed: Polygon,
     transposition_region: Polygon,
     storm_duration: int = 72,
-    source: Conus404Source = CONUS404_HOURLY,
+    item_class: "type[Conus404Item] | None" = None,
 ) -> Polygon:
     """Return the EPSG:4326 area the watershed can be transposed within, on the CONUS404 grid.
 
     Same approach as `stormhub.met.aorc.aorc.valid_spaces_item`, using a sample window starting 1980-05-01.
+    `item_class` sets the store and transposition step (default `Conus404Item`).
     """
+    item_class = item_class or Conus404Item
     start = datetime(1980, 5, 1)
-    ds = open_conus404(source)[[AORC_PRECIP_VARIABLE]]
+    ds = open_conus404(item_class.SOURCE)[[AORC_PRECIP_VARIABLE]]
     subset = subset_conus404(ds, transposition_region, start, start + timedelta(hours=storm_duration))
     precip_sum = subset[AORC_PRECIP_VARIABLE].sum(dim="time", skipna=True, min_count=1).compute()
     transpose = Transpose(
         precip_sum,
         reproject_geometry(watershed, WGS84, ds.rio.crs),
-        Conus404Item.X_VAR,
-        Conus404Item.Y_VAR,
-        step=Conus404Item.TRANSPOSE_STEP,
+        item_class.X_VAR,
+        item_class.Y_VAR,
+        step=item_class.TRANSPOSE_STEP,
     )
     return reproject_geometry(transpose.valid_spaces_polygon, ds.rio.crs, WGS84)
 
@@ -222,3 +232,18 @@ class Conus404Item(AORCItem):
     def _to_wgs84(self, geom: Any) -> Any:
         """Convert a CONUS404 grid CRS geometry to EPSG:4326."""
         return reproject_geometry(geom, self.sum_aorc.rio.crs, WGS84)
+
+
+class Conus404BAItem(Conus404Item):
+    """Storm item backed by bias-adjusted CONUS404 (1 km grid, so the same 4-cell step as AORC)."""
+
+    DATA_SOURCE = "conus404-ba"
+    TRANSPOSE_STEP = 4
+    SOURCE = CONUS404_BIAS_ADJUSTED
+
+
+CONUS404_ITEM_CLASSES: dict[str, type[Conus404Item]] = {
+    Conus404Item.DATA_SOURCE: Conus404Item,
+    Conus404BAItem.DATA_SOURCE: Conus404BAItem,
+}
+"""CONUS404 item class per `data_source` name."""
