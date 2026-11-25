@@ -1314,19 +1314,23 @@ def add_storm_dss_files(
                 nc_config=nc_config,
                 skip_grids_if_exist=skip_grids_if_exist,
             )
-            netcdf_error = register_storm_netcdf(item, nc_written, dss_output_path, kerchunker)
-            if netcdf_error is not None:
-                errors.append(netcdf_error)
+            dss_href = dss_output_path
+            item_href = item.get_self_href()
+            if item_href and pystac.utils.is_absolute_href(dss_href):
+                dss_href = pystac.utils.make_relative_href(dss_href, item_href)
             item.add_asset(
                 dss_fn,
                 Asset(
-                    dss_output_path,
+                    dss_href,
                     dss_fn,
                     description=DSS_ASSET_DESCRIPTION,
                     media_type=DSS_ASSET_MEDIA_TYPE,
                     roles=DSS_ASSET_ROLES,
                 ),
             )
+            netcdf_error = register_storm_netcdf(item, nc_written, dss_output_path, kerchunker)
+            if netcdf_error is not None:
+                errors.append(netcdf_error)
             item.save_object()
         except Exception as e:
             logging.error(f"Could not create dss file for item: {item.id} with error: {e}")
@@ -1433,7 +1437,7 @@ def create_normal_precip(
                     max_grid = xr.where(da > max_grid, da, max_grid)
 
             logging.info(f"Saving max grid for {year} into group {year}")
-            # zarr_format=2 needed because kerchunk 0.2.10 requires zarr 3. stormhub continues writing zarr v2.
+            # xarray 2025.3.1 with zarr 3.1.5 cannot reopen Zarr 3 format. Stormhub uses Zarr 2 format.
             max_grid.to_zarr(ams_zarr_path, group=str(year), mode="a", zarr_format=2)
         except Exception as e:
             logging.error(f"Error processing year {year}: {e}")

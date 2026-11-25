@@ -8,7 +8,7 @@ import math
 import socket
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import List
+from typing import TYPE_CHECKING, List
 import os
 from pathlib import Path
 
@@ -22,7 +22,6 @@ from shapely import make_valid
 from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 import xarray as xr
 
-from stormhub.kerchunker import KerchunkConfig
 from stormhub.met.consts import (
     DSS_TIME_DIMENSION,
     KM_TO_M_CONVERSION_FACTOR,
@@ -34,9 +33,8 @@ from stormhub.met.consts import (
     SHG_WKT,
 )
 
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
+    from stormhub.kerchunker import KerchunkConfig
     from stormhub.met.zarr_to_dss import NOAADataVariable
 
 
@@ -49,12 +47,18 @@ STORMHUB_REF_LINK = Link(
 )
 
 
+def _default_kerchunk_config() -> KerchunkConfig:
+    from stormhub.kerchunker import KerchunkConfig
+
+    return KerchunkConfig()
+
+
 @dataclass(frozen=True)
 class NetCDFConfig:
     """Configure NetCDF export and optional associated Kerchunk behavior."""
 
     write_netcdf: bool = False
-    kerchunk_config: KerchunkConfig = field(default_factory=KerchunkConfig)
+    kerchunk_config: KerchunkConfig = field(default_factory=_default_kerchunk_config)
 
     def __post_init__(self) -> None:
         """Validate compatible NetCDF and Kerchunk settings."""

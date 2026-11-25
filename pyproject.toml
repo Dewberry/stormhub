@@ -33,7 +33,7 @@ dependencies = [
     "rasterio==1.3.10",
     "requests==2.32.3",
     "shapely==2.0.7",
-    # stormhub's group writes not compatible with zarr 3 without xarray 2025.3.1 (stormhub now uses `zarr_format=2`).
+    # xarray 2025.3.1 with zarr 3.1.5 cannot reopen Zarr 3 format. Stormhub uses Zarr 2 format.
     "xarray==2025.3.1",
     "rioxarray==0.18.1",
     # kerchunk 0.2.10 requires fsspec>=2025.2.0, which s3fs tracks.

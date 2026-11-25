@@ -32,6 +32,7 @@ from stormhub.met.consts import (
     STORM_NC_KERCHUNK_COLLECTION_ASSET_KEY,
     STORM_NC_KERCHUNK_INDIVIDUAL_ASSET_DESCRIPTION,
 )
+from stormhub.utils import add_storm_netcdf_asset
 
 KERCHUNK_JSON_ZSTD_LEVEL = 8
 KERCHUNK_SUPPORTED = sys.version_info >= (3, 11)
@@ -91,7 +92,7 @@ def register_storm_netcdf(
     dss_path: str | Path,
     kerchunker: Kerchunker,
 ) -> FileNotFoundError | None:
-    """Add a stormhub NetCDF forcing file as an asset to an existing storm STAC item, and kerchunk it (if configured as such)."""
+    """Add a stormhub NetCDF forcing file as an asset to an existing storm STAC item, and kerchunk it (if configured as such), or remove stale assets when none was written."""
     if written_path is not None:
         netcdf_path = Path(written_path).resolve()
         if not netcdf_path.is_file():
@@ -101,10 +102,13 @@ def register_storm_netcdf(
             netcdf_href = f"{dss_asset.href.rsplit('.', 1)[0]}.nc"
         else:
             netcdf_href = str(Path(dss_path).with_suffix(".nc"))
-        from stormhub.utils import add_storm_netcdf_asset
-
         add_storm_netcdf_asset(item, netcdf_path, netcdf_href)
         kerchunker.add(item, netcdf_path, netcdf_href, item.properties["start_datetime"])
+    else:
+        netcdf_path = Path(dss_path).with_suffix(".nc")
+        item.assets.pop(netcdf_path.name, None)
+        for reference_path in Kerchunker.source_reference_paths(netcdf_path):
+            item.assets.pop(reference_path.name, None)
     return None
 
 
