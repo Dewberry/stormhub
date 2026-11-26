@@ -1,5 +1,15 @@
+"""Generate a storm catalog with NetCDF forcing and Kerchunk references."""
+
 from stormhub.logger import initialize_logger
-from stormhub.met.storm_catalog import add_storm_dss_files, create_normal_precip, new_catalog, new_collection, stac_to_parquet
+from stormhub.met.storm_catalog import (
+    add_storm_dss_files,
+    create_normal_precip,
+    new_catalog,
+    new_collection,
+    stac_to_parquet,
+)
+from stormhub.utils import NetCDFConfig
+from stormhub.kerchunker import KerchunkConfig, KerchunkFormat
 import json
 import logging
 import shutil
@@ -85,10 +95,19 @@ if __name__ == "__main__":
     )
     # Add config file as a STAC collection asset
     add_config_to_collection(storm_collection)
-    
-    # Optionally, add DSS files to storm items
-    # add_storm_dss_files(storm_catalog)
-    
+
+    # Optionally, add DSS files to storm items, write a NetCDF for each storm, and create kerchunk references on those NetCDF files.
+    add_storm_dss_files(
+        storm_catalog,
+        nc_config=NetCDFConfig(
+            write_netcdf=True,
+            kerchunk_config=KerchunkConfig(
+                make_individual_refs=KerchunkFormat.JSON,
+                make_collection_ref=KerchunkFormat.PARQUET,
+            ),
+        ),
+    )
+
     # Optionally, create normal precipitation grid
     # create_normal_precip(start_year = 1980, end_year = 2024, catalog = storm_catalog, storm_duration_hours = storm_duration_hours, every_n_hours = 24)
 
